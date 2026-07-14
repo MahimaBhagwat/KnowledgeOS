@@ -1,0 +1,761 @@
+# KnowledgeOS - Database Design
+
+# Part 2 - Schema Overview, Naming Conventions, Profiles Table
+
+---
+
+# 14. PostgreSQL Schema Overview
+
+The PostgreSQL database serves as the **primary source of truth** for all structured application data within KnowledgeOS.
+
+While vector embeddings are stored in ChromaDB and original files reside in Supabase Storage, PostgreSQL maintains the authoritative representation of every application entity, their relationships, lifecycle states, and metadata.
+
+The relational schema is organized into four logical functional groups.
+
+---
+
+## 14.1 Authentication & Identity Management
+
+Authentication is handled by **Supabase Auth**, which manages user credentials, authentication providers, password recovery, session management, and JWT issuance.
+
+KnowledgeOS extends the authentication system through a dedicated `profiles` table.
+
+```text id="d1w4s9"
+Supabase
+
+auth.users
+      │
+      │ 1 : 1
+      ▼
+public.profiles
+```
+
+### Responsibilities
+
+* User profile information
+* Display name
+* Profile avatar
+* Application preferences
+* Onboarding status
+* Account metadata
+
+Authentication credentials are **never duplicated** inside the application database.
+
+---
+
+## 14.2 Knowledge Infrastructure Management
+
+This module manages all uploaded knowledge sources.
+
+Core entities include:
+
+* folders
+* documents
+* document_chunks
+
+Responsibilities include:
+
+* Folder organization
+* Document metadata
+* Processing status
+* Chunk management
+* AI retrieval metadata
+* Soft deletion lifecycle
+
+---
+
+## 14.3 Conversational AI Engine
+
+This module stores all conversational interactions.
+
+Core entities:
+
+* chat_sessions
+* chat_messages
+
+Responsibilities include:
+
+* Conversation history
+* Session metadata
+* AI responses
+* Source citations
+* Conversation continuity
+
+Conversation memory used during Retrieval-Augmented Generation (RAG) is derived from these relational records.
+
+---
+
+## 14.4 Personalization & Analytics
+
+This module supports personalized AI experiences.
+
+Core entities:
+
+* insights
+* user_preferences
+
+Responsibilities include:
+
+* Personalized recommendations
+* Learning analytics
+* User configuration
+* Dashboard statistics
+* Future adaptive learning features
+
+---
+
+## 14.5 Database Ownership Hierarchy
+
+Every entity ultimately belongs to one authenticated user.
+
+```text id="q3m7kt"
+auth.users
+
+        │
+
+        ▼
+
+profiles
+
+        │
+
+ ┌──────┼──────────┬───────────┐
+
+ ▼      ▼          ▼           ▼
+
+folders chats   insights   preferences
+
+   │
+
+   ▼
+
+documents
+
+   │
+
+   ▼
+
+document_chunks
+
+   │
+
+   ▼
+
+ChromaDB Vector Record
+```
+
+This hierarchy guarantees complete tenant isolation throughout the application.
+
+---
+
+## 14.6 Folder Hierarchy Strategy
+
+KnowledgeOS follows a **flat folder architecture** for the MVP.
+
+Each folder belongs directly to one authenticated user and cannot contain child folders.
+
+```text
+User
+
+├── Uploaded
+
+├── Quick Notes
+
+├── Research Papers
+
+├── Interview Prep
+
+├── ML
+
+└── Personal
+```
+
+Documents belong to exactly one folder.
+
+If the user does not explicitly choose a folder during upload, the document is automatically assigned to the default **Uploaded** folder.
+
+### Why Flat Folders?
+
+The MVP prioritizes simplicity, usability, and maintainability.
+
+Advantages include:
+
+- Simpler database schema
+- Faster queries
+- No recursive relationships
+- Easier document movement
+- Cleaner UI
+- Lower implementation complexity
+
+### Future Expansion
+
+Future versions may introduce nested folders by adding a nullable `parent_folder_id` foreign key referencing `folders(id)`.
+
+This addition can be made without changing existing APIs or user data.
+
+---
+
+## 14.7 System Folder Strategy
+
+KnowledgeOS distinguishes between **system-managed folders** and **user-created folders**.
+
+### System Folders
+
+The following folders are automatically created for every new user.
+
+- Uploaded
+- Quick Notes
+
+These folders cannot be deleted.
+
+Their names may be changed in future versions through localization, but their purpose remains fixed.
+
+---
+
+### User Folders
+
+Users may create, rename, and delete their own folders.
+
+Every user-created folder belongs exclusively to the authenticated user.
+
+---
+
+### Virtual Collections
+
+Some sections displayed in the user interface are **not physical folders**.
+
+Instead, they are dynamically generated views over the document table.
+
+These include:
+
+- Favorites
+- Recently Deleted
+
+Favorites are determined using the `is_favorite` attribute stored on each document.
+
+Recently Deleted is determined using the `is_deleted` and `deleted_at` fields.
+
+This design keeps the relational schema normalized while simplifying filtering and retrieval.
+
+---
+
+# 15. Entity Naming Conventions
+
+To maintain consistency, scalability, and compatibility with SQLAlchemy, Alembic, and PostgreSQL best practices, KnowledgeOS follows strict database naming conventions.
+
+---
+
+## 15.1 Naming Convention
+
+All database objects use **lowercase snake_case**.
+
+Examples:
+
+```text id="v8k6pf"
+profiles
+
+documents
+
+document_chunks
+
+chat_sessions
+
+user_preferences
+```
+
+The same convention applies to:
+
+* Tables
+* Columns
+* Constraints
+* Indexes
+* Foreign Keys
+* Database Functions
+* Triggers
+
+---
+
+## 15.2 Primary Keys
+
+Every application table uses a UUID as its primary key.
+
+```sql
+id UUID PRIMARY KEY DEFAULT gen_random_uuid()
+```
+
+### Why UUID?
+
+* Globally unique
+* Difficult to enumerate
+* Distributed-system friendly
+* Native PostgreSQL support
+* Seamless integration with Supabase
+
+---
+
+## 15.3 Foreign Keys
+
+Every relationship is enforced through foreign key constraints.
+
+Examples include:
+
+```text id="d0mz8a"
+profiles.user_id
+
+↓
+
+auth.users.id
+
+documents.folder_id
+
+↓
+
+folders.id
+
+chat_messages.chat_session_id
+
+↓
+
+chat_sessions.id
+```
+
+Referential integrity is enforced throughout the schema.
+
+---
+
+## 15.4 Audit Fields
+
+Every mutable entity contains standardized lifecycle timestamps.
+
+```text id="1yxoz6"
+created_at
+
+updated_at
+```
+
+### created_at
+
+Represents the timestamp at which the record was initially created.
+
+Once written, this value is immutable.
+
+---
+
+### updated_at
+
+Represents the timestamp of the most recent modification.
+
+This value is automatically updated whenever mutable fields change.
+
+The application never manually updates this column.
+
+---
+
+## 15.5 Automatic Timestamp Updates
+
+KnowledgeOS uses PostgreSQL trigger functions to maintain `updated_at`.
+
+A reusable trigger function updates the timestamp before every UPDATE operation.
+
+This trigger is attached to mutable tables including:
+
+* profiles
+* folders
+* documents
+* chat_sessions
+* user_preferences
+* insights (if editable)
+
+This ensures timestamp consistency regardless of whether changes originate from the application, background jobs, or administrative tools.
+
+---
+
+## 15.6 Soft Delete Convention
+
+Recoverable entities support soft deletion.
+
+Standard fields:
+
+```text id="it5oqf"
+is_deleted BOOLEAN
+
+deleted_at TIMESTAMPTZ
+```
+
+Deletion follows a two-stage lifecycle:
+
+1. Soft Delete
+2. Permanent Delete
+
+During the soft deletion period:
+
+* Records remain physically stored.
+* They are hidden from the application.
+* AI retrieval excludes them through metadata filtering.
+
+Permanent deletion removes:
+
+* Original files
+* Metadata
+* Chunks
+* ChromaDB vector records
+
+---
+
+## 15.7 Enumerations
+
+Business domains with a limited set of valid values use PostgreSQL ENUM types.
+
+Examples include:
+
+```text id="ph6vjd"
+processing_status
+
+document_type
+
+source_type
+
+chat_role
+
+insight_type
+```
+
+ENUMs provide:
+
+* Better validation
+* Smaller storage footprint
+* Improved query readability
+* Stronger data integrity
+
+---
+
+## 15.8 Index Naming Convention
+
+Indexes follow a predictable naming pattern.
+
+```text id="0q4kmb"
+idx_<table>_<column>
+
+idx_documents_user_id
+
+idx_documents_status
+
+idx_chat_messages_session_id
+```
+
+Composite indexes follow:
+
+```text id="o9v3fh"
+idx_<table>_<column1>_<column2>
+```
+
+---
+
+## 15.9 Constraint Naming Convention
+
+Constraints use descriptive names.
+
+Examples:
+
+```text id="ld28xa"
+pk_documents
+
+fk_documents_folder_id
+
+fk_profiles_user_id
+
+uq_profiles_username
+
+chk_processing_status
+```
+
+This simplifies debugging and migration management.
+
+---
+
+## 15.10 Trigger Naming Convention
+
+Database triggers follow a consistent naming standard.
+
+```text id="z8h2rm"
+trg_update_profiles_timestamp
+
+trg_update_documents_timestamp
+
+trg_update_chat_sessions_timestamp
+```
+
+---
+
+## 15.11 ChromaDB Mapping Convention
+
+Every document chunk has a one-to-one conceptual mapping with a vector record stored in ChromaDB.
+
+The `chunk_id` generated in PostgreSQL is reused as the vector record identifier inside ChromaDB.
+
+```text id="t7u2ke"
+PostgreSQL
+
+document_chunks.id
+
+↓
+
+ChromaDB
+
+vector_record.id
+```
+
+Using the same identifier enables:
+
+* Deterministic synchronization
+* Simplified embedding regeneration
+* Faster debugging
+* Direct citation mapping
+* Reliable deletion synchronization
+
+---
+
+## 15.12 Design Principles
+
+The schema follows these core principles:
+
+* Authentication managed exclusively by Supabase Auth.
+* Application-specific user data stored in `profiles`.
+* UUID primary keys across all entities.
+* Strict foreign key enforcement.
+* Flat folder hierarchy for the MVP.
+* System folders separated from virtual collections.
+* Automatic timestamp management through database triggers.
+* Immutable original documents.
+* Soft deletion before permanent deletion.
+* One-to-one conceptual mapping between document chunks and ChromaDB vector records.
+* Consistent naming conventions across all database objects.
+* Future-proof schema designed for extensibility.
+
+---
+
+# 15.13 Phase Summary
+
+The PostgreSQL schema establishes a modular, secure, and production-oriented foundation for KnowledgeOS.
+
+By separating authentication from application data, enforcing consistent naming conventions, leveraging UUID-based identifiers, automating lifecycle tracking through database triggers, and maintaining deterministic mappings between relational records and vector embeddings, the schema provides a scalable data model capable of supporting current features and future platform expansion.
+
+---
+
+# 16. Table — Profiles
+
+---
+
+## 16.1 Purpose
+
+The `profiles` table extends Supabase's built-in authentication system by storing application-specific user information.
+
+Authentication credentials such as email, password hashes, OAuth identities, and session management remain exclusively within the protected `auth.users` schema.
+
+The `profiles` table contains only information required by KnowledgeOS.
+
+Examples include:
+
+* Display Name
+* Profile Picture
+* Time Zone
+* Theme Preference
+* Onboarding Status
+* Account Metadata
+
+This separation follows Supabase's recommended architecture and keeps authentication concerns independent from application data.
+
+---
+
+## 16.2 Relationship
+
+```text
+Supabase
+
+auth.users
+      │
+      │ 1 : 1
+      ▼
+public.profiles
+```
+
+The `profiles.id` column is both:
+
+* Primary Key
+* Foreign Key referencing `auth.users(id)`
+
+Every authenticated user must have exactly one profile.
+
+---
+
+## 16.3 Table Definition
+
+| Column               | Data Type    | Nullable | Default                   | Description                 |
+| -------------------- | ------------ | -------- | ------------------------- | --------------------------- |
+| id                   | UUID         | No       | References auth.users(id) | Primary Key and Foreign Key |
+| username             | VARCHAR(50)  | Yes      | NULL                      | Optional unique username    |
+| display_name         | VARCHAR(100) | No       | —                         | User's display name         |
+| avatar_url           | TEXT         | Yes      | NULL                      | Profile picture URL         |
+| bio                  | TEXT         | Yes      | NULL                      | Short profile description   |
+| timezone             | VARCHAR(50)  | No       | 'UTC'                     | User timezone               |
+| theme                | VARCHAR(20)  | No       | 'system'                  | light / dark / system       |
+| onboarding_completed | BOOLEAN      | No       | FALSE                     | First-time setup completed  |
+| created_at           | TIMESTAMPTZ  | No       | NOW()                     | Record creation timestamp   |
+| updated_at           | TIMESTAMPTZ  | No       | NOW()                     | Last modification timestamp |
+
+---
+
+## 16.4 Constraints
+
+### Primary Key
+
+```sql
+PRIMARY KEY (id)
+```
+
+---
+
+### Foreign Key
+
+```sql
+FOREIGN KEY (id)
+
+REFERENCES auth.users(id)
+
+ON DELETE CASCADE
+```
+
+If a user account is deleted from Supabase Auth, the corresponding profile is automatically removed.
+
+---
+
+### Unique Constraints
+
+```text
+username
+```
+
+Usernames must be unique if provided.
+
+Multiple NULL values are permitted.
+
+---
+
+### Check Constraints
+
+Theme values are restricted to:
+
+```text
+light
+
+dark
+
+system
+```
+
+Timezone values should conform to valid IANA timezone identifiers.
+
+---
+
+## 16.5 Indexes
+
+| Index Name                | Columns      | Purpose              |
+| ------------------------- | ------------ | -------------------- |
+| idx_profiles_username     | username     | Fast username lookup |
+| idx_profiles_display_name | display_name | Search and filtering |
+
+The primary key automatically creates an index on `id`.
+
+---
+
+## 16.6 Trigger
+
+The `updated_at` column is maintained automatically.
+
+```text
+BEFORE UPDATE
+
+↓
+
+trg_update_profiles_timestamp
+
+↓
+
+updated_at = NOW()
+```
+
+Application code should never modify this field directly.
+
+---
+
+## 16.7 Relationships
+
+```text
+profiles
+
+│
+
+├──────────── folders (system + user-created)
+
+├──────────── documents (through folders)
+
+├──────────── chat_sessions
+
+├──────────── insights
+
+└──────────── user_preferences
+```
+
+Every feature in KnowledgeOS ultimately belongs to a profile.
+
+---
+
+## 16.8 Design Decisions
+
+### Why not store authentication here?
+
+Supabase already provides a secure authentication system.
+
+Duplicating authentication data would increase maintenance complexity and create consistency risks.
+
+---
+
+### Why use the same UUID?
+
+Using the same UUID for both `auth.users` and `profiles` eliminates unnecessary surrogate keys and simplifies joins throughout the application.
+
+---
+
+### Why keep profile data separate?
+
+Authentication data changes infrequently, whereas profile information evolves with application features.
+
+Separating the two concerns improves maintainability and supports future expansion without affecting the authentication layer.
+
+---
+
+## 16.9 Future Expansion
+
+The following fields may be introduced in later versions:
+
+* Preferred AI Model
+* Preferred Language
+* Notification Preferences
+* API Usage Statistics
+* Subscription Tier
+* Storage Quota
+* Voice Settings
+* Accessibility Preferences
+* Connected Integrations (GitHub, Google Drive, Notion, Gmail)
+
+The current schema accommodates these additions without structural redesign.
+
+---
+
+## 16.10 Summary
+
+The `profiles` table provides the application identity layer for KnowledgeOS while delegating authentication responsibilities to Supabase Auth.
+
+This design minimizes redundancy, enforces a clean separation of concerns, and establishes a secure foundation upon which every user-owned entity in the platform is built.
+
+---

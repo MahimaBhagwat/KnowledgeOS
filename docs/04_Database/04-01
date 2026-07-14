@@ -1,0 +1,510 @@
+# KnowledgeOS - Database Design
+
+# Part 1 — Database Overview, Storage Architecture & Design Principles
+
+---
+
+# 1. Purpose
+
+This document defines the complete database architecture of **KnowledgeOS**.
+
+It serves as the implementation blueprint for all persistent data used throughout the application, including user information, uploaded documents, folders, conversations, AI-generated insights, vector embeddings, and application metadata.
+
+The database design prioritizes:
+
+* Scalability
+* Security
+* Data integrity
+* Explainability
+* Maintainability
+* Efficient AI retrieval
+
+This document should be used together with **03_Architecture.md** when implementing backend services and APIs.
+
+---
+
+# 2. Scope
+
+This document covers the complete data layer of KnowledgeOS, including:
+
+* PostgreSQL Database Design
+* ChromaDB Vector Database Design
+* Supabase Storage Organization
+* Entity Relationships
+* Database Constraints
+* Indexing Strategy
+* Soft Delete Strategy
+* AI Memory Storage
+* Metadata Design
+* Future Schema Expansion
+
+---
+
+# 3. Database Design Goals
+
+The database has been designed around the following goals.
+
+## 3.1 User Isolation
+
+Every piece of data belongs to exactly one authenticated user.
+
+This includes:
+
+* Documents
+* Folders
+* Conversations
+* Messages
+* Insights
+* Embeddings
+* Preferences
+
+No user should ever be able to access another user's data.
+
+---
+
+## 3.2 Single Source of Truth
+
+Every entity should have a single authoritative location.
+
+Examples:
+
+* User metadata → PostgreSQL
+* Document files → Supabase Storage
+* Embeddings → ChromaDB
+
+This prevents duplicate or inconsistent data.
+
+---
+
+## 3.3 AI-Friendly Design
+
+The schema is optimized for Retrieval-Augmented Generation (RAG).
+
+It supports:
+
+* Semantic retrieval
+* Source citations
+* Chunk-level metadata
+* Multi-document reasoning
+* Conversation memory
+
+---
+
+## 3.4 Scalability
+
+The schema should support future additions without major redesign.
+
+Examples:
+
+* Gmail Integration
+* Google Drive
+* GitHub
+* Notion
+* OCR
+* Voice Conversations
+* Knowledge Graph
+
+---
+
+## 3.5 Maintainability
+
+The database should remain easy to understand and extend.
+
+Clear naming conventions, normalized relationships, and consistent key usage are preferred over unnecessary optimization.
+
+---
+
+## 3.6 Explainability
+
+Every AI response should be traceable back to its originating document and document chunk.
+
+The schema therefore stores sufficient metadata to support citations and response verification.
+
+---
+
+# 4. Storage Architecture
+
+KnowledgeOS separates data across specialized storage systems based on the type of information being stored.
+
+```text
+                        KnowledgeOS
+
+                             │
+        ┌────────────────────┼────────────────────┐
+        │                    │                    │
+        ▼                    ▼                    ▼
+
+ PostgreSQL            ChromaDB          Supabase Storage
+
+ Structured Data      Vector Data         Original Files
+
+        │                    │                    │
+
+    Users                Embeddings             PDFs
+
+    Documents           Vector Indexes          DOCX
+
+    Chats               Retrieval IDs           PPTX
+
+    Messages            Similarity Search       Markdown
+
+    Folders                                     TXT
+
+    Insights                                    HTML
+
+    Settings
+```
+
+Each storage system has a clearly defined responsibility.
+
+---
+
+# 5. Database Components
+
+KnowledgeOS uses three different storage technologies.
+
+---
+
+## 5.1 PostgreSQL
+
+PostgreSQL serves as the **primary relational database**.
+
+It stores all structured application data.
+
+Examples include:
+
+* Users
+* Documents
+* Document Metadata
+* Folder Structure
+* Chat Sessions
+* Chat Messages
+* User Preferences
+* AI Insights
+* Processing Status
+* Chunk Metadata
+
+PostgreSQL acts as the primary source of truth for the application.
+
+---
+
+## 5.2 ChromaDB
+
+ChromaDB serves as the semantic vector database.
+
+It stores the vector embeddings generated from document chunks along with the corresponding text chunk and lightweight metadata required for efficient semantic retrieval.
+
+Responsibilities include:
+
+- Similarity Search
+- Semantic Retrieval
+- Top-k Search
+- Context Retrieval
+
+Each vector entry stores:
+
+- Embedding vector
+- Text chunk
+- User ID
+- Document ID
+- Chunk Index
+- Additional retrieval metadata
+
+Storing the text chunk alongside the embedding allows the retrieval layer to immediately assemble the prompt context after a similarity search without requiring additional database lookups.
+
+PostgreSQL remains the authoritative source for complete document metadata, processing information, and citation management, while ChromaDB is optimized for high-performance semantic retrieval.
+
+---
+
+## 5.3 Supabase Storage
+
+Supabase Storage stores original uploaded files.
+
+Supported document formats include:
+
+* PDF
+* DOCX
+* PPTX
+* Markdown
+* TXT
+* HTML
+
+Documents remain in their original format to support:
+
+* Viewing
+* Downloading
+* Reprocessing
+* Future OCR
+* Future embedding regeneration
+
+---
+
+# 6. Data Ownership Model
+
+KnowledgeOS follows a strict ownership hierarchy.
+
+```text
+User
+
+│
+
+├── Folders
+
+│      │
+
+│      └── Documents
+
+│              │
+
+│              ├── Chunks
+
+│              ├── Embeddings
+
+│              └── Metadata
+
+│
+
+├── Chat Sessions
+
+│      │
+
+│      └── Messages
+
+│
+
+├── Insights
+
+│
+
+└── Preferences
+```
+
+Every record ultimately belongs to exactly one authenticated user.
+
+This ownership hierarchy is enforced throughout the application.
+
+---
+
+# 7. Entity Relationship Overview
+
+The core database entities are shown below.
+
+```text
+                                  Users
+                                    │
+        ┌───────────────────────────┼───────────────────────────┐
+        │                           │                           │
+        ▼                           ▼                           ▼
+     Folders                  Chat Sessions                 Insights / Preferences
+        │                           │
+        ▼                           ▼
+    Documents                 Chat Messages
+        │
+        ▼
+ Document Chunks 
+        │
+        └────────────────────────────────────────► ChromaDB Vector Collection
+                                                   (Embedding + Chunk Text +
+                                                    Retrieval Metadata)
+```
+
+The detailed table definitions and relationships are provided in the following sections.
+
+---
+
+# 8. Data Flow Overview
+
+The following diagram illustrates how data moves through the system.
+
+```text
+User Uploads File
+
+↓
+
+Supabase Storage
+
+↓
+
+Document Metadata
+
+↓
+
+PostgreSQL
+
+↓
+
+Parser
+
+↓
+
+Chunking
+
+↓
+
+Document Chunks
+
+↓
+
+Embedding Generation
+
+↓
+
+ChromaDB
+
+↓
+
+AI Retrieval
+
+↓
+
+LLM
+
+↓
+
+Response
+
+↓
+
+Chat History
+
+↓
+
+PostgreSQL
+```
+
+This separation enables independent scaling of storage, retrieval, and AI processing.
+
+---
+
+# 9. Primary Key Strategy
+
+KnowledgeOS uses **UUIDs** as the primary key for every major entity.
+
+Examples:
+
+* User ID
+* Folder ID
+* Document ID
+* Chunk ID
+* Chat Session ID
+* Message ID
+* Insight ID
+
+### Why UUID?
+
+* Globally unique identifiers
+* Safer for distributed systems
+* Difficult to enumerate
+* Better suited for future microservices
+* Native support in PostgreSQL and Supabase
+
+---
+
+# 10. Foreign Key Strategy
+
+Relationships are enforced using foreign keys wherever appropriate.
+
+Examples:
+
+* Documents → Users
+* Documents → Folders
+* Chunks → Documents
+* Chat Sessions → Users
+* Messages → Chat Sessions
+* Insights → Users
+
+This ensures referential integrity throughout the system.
+
+---
+
+# 11. Soft Delete Strategy
+
+KnowledgeOS supports a two-stage deletion workflow.
+
+### Stage 1 — Soft Delete
+
+When a user deletes a document:
+
+* It moves to **Recently Deleted**.
+* A `deleted_at` timestamp is recorded.
+* The document no longer appears in normal searches.
+* The `is_deleted` flag is immediately set to `TRUE` in PostgreSQL. This state is propagated to the retrieval layer, which automatically appends an `is_deleted = false` metadata filter to every active ChromaDB similarity query.
+
+As a result, deleted documents become immediately invisible to the AI retrieval pipeline, ensuring they cannot contribute to future responses even during the soft retention period.
+
+The original file and embeddings are retained during the retention period.
+
+---
+
+### Stage 2 — Permanent Delete
+
+After the retention period:
+
+* Original file is removed from Supabase Storage.
+* Metadata is removed from PostgreSQL.
+* Chunks are deleted.
+* Embeddings are removed from ChromaDB.
+* AI retrieval can no longer access the document.
+
+This guarantees complete removal of deleted knowledge from the system.
+
+---
+
+# 12. Database Design Principles
+
+The following principles guide every schema decision.
+
+* UUIDs for all primary keys.
+* Normalized relational schema.
+* User-level data isolation.
+* Separate structured data from vector data.
+* Keep original files immutable.
+* Store document chunks independently of embeddings.
+* Validate Quick Notes payload size before processing.
+* Preserve metadata for explainability.
+* Optimize for AI retrieval and future scalability.
+* Design for extensibility without schema redesign.
+
+---
+
+# 12.1 Quick Notes Processing Constraint
+
+Quick Notes entered directly into the application are validated against predefined payload size limits before processing.
+
+Once validated, the note is automatically converted into a managed text document and follows the same ingestion pipeline as uploaded files.
+
+This ensures consistent document processing, indexing, retrieval, lifecycle management, and security across all knowledge sources while preventing oversized payloads from impacting application stability.
+
+---
+
+# 12.2 Immutable Source Documents
+
+Original uploaded documents are treated as immutable objects.
+
+KnowledgeOS never modifies the original file contents after upload.
+
+Any derived artifacts, including parsed text, chunks, embeddings, summaries, and AI-generated metadata, are stored separately.
+
+This guarantees reproducibility, enables embedding regeneration when models change, and preserves the integrity of the original user data.
+
+---
+
+# 13. Part 1 Summary
+
+The database architecture of KnowledgeOS is built around three specialized storage systems:
+
+* **PostgreSQL** for structured application data.
+* **ChromaDB** for semantic vector retrieval.
+* **Supabase Storage** for original document storage.
+
+This separation provides a scalable, secure, and AI-friendly foundation while ensuring complete user isolation, efficient retrieval, explainable responses, and support for future product expansion.
+
+The following sections define each database table, relationship, and indexing strategy in detail.
+
+---
+
+# KnowledgeOS - Database Design
+
+# Part 2 — PostgreSQL Schema Design
+
+---

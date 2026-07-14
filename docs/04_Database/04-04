@@ -1,0 +1,619 @@
+# KnowledgeOS - Database Design
+
+# Part 4 - Documents Table
+
+---
+
+# 18. Table — Documents
+
+---
+
+# 18.1 Purpose
+
+The `documents` table is the central entity of KnowledgeOS.
+
+Every knowledge source ingested into the system is represented as exactly one document record, regardless of its origin.
+
+Examples include:
+
+- PDF
+- DOCX
+- PPTX
+- Markdown
+- TXT
+- HTML
+- Quick Notes
+- Future Gmail Emails
+- Future GitHub Files
+- Future Notion Pages
+- Future Google Drive Documents
+
+The `documents` table acts as the authoritative metadata layer connecting:
+
+- Folder Management
+- Supabase Storage
+- PostgreSQL
+- ChromaDB
+- AI Retrieval Pipeline
+- Planner Agent
+- Reviewer Agent
+- Insights Engine
+
+The actual file contents remain immutable inside Supabase Storage, while AI-generated artifacts (chunks, embeddings, summaries, metadata) are stored separately.
+
+Every document belongs to exactly one folder.
+
+KnowledgeOS does not support root-level documents.
+
+If a user uploads a document without selecting a folder, the backend automatically assigns it to the user's **Uploaded** system folder.
+
+---
+
+# 18.2 Relationships
+
+```text
+profiles
+
+│
+
+└──────────── folders
+
+                    │
+
+                    ▼
+
+                documents
+
+                    │
+
+      ┌─────────────┼─────────────┐
+
+      ▼             ▼             ▼
+
+ document_chunks  chat_messages  insights
+```
+
+---
+
+# 18.3 Enumerations
+
+## Document Type
+
+```sql
+CREATE TYPE document_type_enum AS ENUM (
+
+'pdf',
+
+'docx',
+
+'pptx',
+
+'markdown',
+
+'txt',
+
+'html'
+
+);
+```
+
+---
+
+## Source Type
+
+```sql
+CREATE TYPE source_type_enum AS ENUM (
+
+'upload',
+
+'quick_note',
+
+'gmail',
+
+'github',
+
+'notion',
+
+'google_drive',
+
+'api'
+
+);
+```
+
+---
+
+## Processing Status
+
+```sql
+CREATE TYPE processing_status_enum AS ENUM (
+
+'uploaded',
+
+'queued',
+
+'processing',
+
+'embedded',
+
+'ready',
+
+'failed',
+
+'deleted'
+
+);
+```
+
+---
+
+# 18.4 Table Schema
+
+| Column | Data Type | Nullable | Default | Description |
+|---------|-----------|----------|----------|-------------|
+| id | UUID | No | gen_random_uuid() | Primary Key |
+| profile_id | UUID | No | — | Owner of the document |
+| folder_id | UUID | No | — | Parent folder |
+| title | VARCHAR(255) | No | — | Display title |
+| original_filename | VARCHAR(255) | Yes | NULL | Uploaded filename |
+| storage_path | TEXT | No | — | Supabase Storage path |
+| document_type | document_type_enum | No | — | Physical document format |
+| source_type | source_type_enum | No | upload | Origin of the document |
+| processing_status | processing_status_enum | No | uploaded | Processing lifecycle |
+| mime_type | VARCHAR(100) | Yes | NULL | MIME type |
+| file_size_bytes | BIGINT | Yes | NULL | File size |
+| page_count | INTEGER | Yes | NULL | Total pages |
+| word_count | INTEGER | Yes | NULL | Word count |
+| character_count | INTEGER | Yes | NULL | Character count |
+| estimated_read_time_minutes | INTEGER | Yes | NULL | Estimated reading time |
+| language | VARCHAR(20) | Yes | NULL | Detected language |
+| content_hash | CHAR(64) | No | — | SHA-256 checksum |
+| ai_summary | TEXT | Yes | NULL | AI-generated summary |
+| version | INTEGER | No | 1 | Document version |
+| is_favorite | BOOLEAN | No | FALSE | Favorite flag |
+| open_count | INTEGER | No | 0 | Number of document opens |
+| last_opened_at | TIMESTAMPTZ | Yes | NULL | Last viewed timestamp |
+| is_deleted | BOOLEAN | No | FALSE | Soft delete flag |
+| deleted_at | TIMESTAMPTZ | Yes | NULL | Soft delete timestamp |
+| created_at | TIMESTAMPTZ | No | NOW() | Creation timestamp |
+| updated_at | TIMESTAMPTZ | No | NOW() | Last update timestamp |
+
+---
+
+# 18.5 Constraints
+
+## Primary Key
+
+```sql
+PRIMARY KEY (id);
+```
+
+---
+
+## Foreign Keys
+
+```sql
+FOREIGN KEY (profile_id)
+
+REFERENCES profiles(id)
+
+ON DELETE CASCADE;
+```
+
+```sql
+FOREIGN KEY (folder_id)
+
+REFERENCES folders(id)
+
+ON DELETE RESTRICT;
+```
+
+The database enforces referential integrity by preventing the deletion of folders that still contain documents.
+
+When a user requests the deletion of a custom folder, the application service (or a database trigger) first transfers all associated documents to the user's **Uploaded** system folder before executing the folder deletion.
+
+```text
+Delete Folder Request
+
+        │
+
+        ▼
+
+Find User's Uploaded Folder
+
+        │
+
+        ▼
+
+UPDATE documents
+
+SET folder_id = uploaded_folder_id
+
+WHERE folder_id = deleted_folder_id
+
+        │
+
+        ▼
+
+Delete Folder
+```
+
+This guarantees that:
+
+- Every document always belongs to exactly one folder.
+- Documents are never orphaned.
+- The flat folder hierarchy remains intact.
+- Folder deletion never results in data loss.
+
+---
+
+## Unique Constraints
+
+Every user may upload multiple documents having the same filename.
+
+Therefore, filenames are **not** unique.
+
+Instead, document integrity is guaranteed using:
+
+```text
+profile_id
+
++
+
+content_hash
+```
+
+Composite unique constraint:
+
+```sql
+UNIQUE(profile_id, content_hash);
+```
+
+This prevents duplicate uploads of the exact same content.
+
+---
+
+## Check Constraints
+
+```sql
+CHECK(version >= 1);
+```
+
+```sql
+CHECK(open_count >= 0);
+```
+
+```sql
+CHECK(file_size_bytes >= 0);
+```
+
+```sql
+CHECK(page_count >= 0);
+```
+
+```sql
+CHECK(word_count >= 0);
+```
+
+---
+
+# 18.6 Indexes
+
+| Index | Purpose |
+|--------|---------|
+| idx_documents_profile | User document retrieval |
+| idx_documents_folder | Folder filtering |
+| idx_documents_status | Processing queue |
+| idx_documents_source | Source filtering |
+| idx_documents_language | Language filtering |
+| idx_documents_updated | Recent documents |
+| idx_documents_favorite | Favorites |
+| idx_documents_deleted | Recently Deleted |
+
+Composite indexes
+
+```sql
+CREATE INDEX idx_documents_profile_folder
+
+ON documents(profile_id, folder_id);
+```
+
+```sql
+CREATE INDEX idx_documents_profile_status
+
+ON documents(profile_id, processing_status);
+```
+
+```sql
+CREATE INDEX idx_documents_profile_deleted
+
+ON documents(profile_id, is_deleted);
+```
+
+---
+
+# 18.7 Triggers
+
+## Automatic Timestamp
+
+```text
+BEFORE UPDATE
+
+↓
+
+updated_at = NOW()
+```
+
+---
+
+## Folder Counter Update
+
+Whenever a document is:
+
+- Uploaded
+- Deleted
+- Restored
+- Archived
+- Moved
+
+database triggers automatically update the cached
+
+```
+document_count
+```
+
+of the affected folders.
+
+---
+
+## AI Processing Trigger
+
+After successful upload,
+
+the backend queues the document for
+
+- Parsing
+- Metadata Extraction
+- Chunking
+- Embedding Generation
+
+---
+
+# 18.8 Document Lifecycle
+
+```text
+Upload
+
+↓
+
+Metadata Created
+
+↓
+
+Stored in Supabase
+
+↓
+
+Queued
+
+↓
+
+Processing
+
+↓
+
+Chunking
+
+↓
+
+Embedding
+
+↓
+
+Ready
+
+↓
+
+Available to AI
+```
+
+---
+
+## Soft Delete
+
+The document remains stored.
+
+Immediately:
+
+- Hidden from UI
+- Hidden from RAG retrieval
+- Hidden from Search
+
+---
+
+## Permanent Delete
+
+Deletes:
+
+- Original file
+- Metadata
+- Chunks
+- Embeddings
+- AI Summary
+
+The document becomes unrecoverable.
+
+---
+
+# 18.9 AI Metadata
+
+During ingestion the system automatically generates:
+
+- AI Summary
+- Content Hash
+- Language
+- Reading Time
+- Statistics
+- Processing Metadata
+
+These values improve search quality and reduce unnecessary LLM calls.
+
+---
+
+# 18.10 Storage Strategy
+
+Original documents remain immutable.
+
+```text
+Supabase Storage
+
+↓
+
+Original File
+```
+
+PostgreSQL stores
+
+- Metadata
+- Statistics
+- AI Summary
+- Processing State
+
+ChromaDB stores
+
+- Embeddings
+- Chunk Text
+- Retrieval Metadata
+
+This separation allows embeddings to be regenerated without modifying the original document.
+
+### Version Synchronization
+
+To prevent split-brain states between PostgreSQL and ChromaDB during document updates or embedding regeneration, every vector record stores the same `version` value as its corresponding document.
+
+```text
+PostgreSQL
+
+Document
+
+Version = 3
+
+        ⇅
+
+ChromaDB
+
+Embedding Metadata
+
+Version = 3
+```
+
+During Retrieval-Augmented Generation (RAG), the retrieval pipeline is capable of validating that the vector metadata version matches the current PostgreSQL document version before assembling the context window.
+
+If a version mismatch is detected, the embedding is considered stale and is ignored until regeneration completes.
+
+This mechanism ensures that AI responses are always generated from the most recent document representation and prevents inconsistencies caused by interrupted ingestion or partial embedding updates.
+
+---
+
+# 18.11 Design Decisions
+
+## Why Separate document_type and source_type?
+
+A document's format is different from where it originated.
+
+Example:
+
+GitHub README
+
+Format → markdown
+
+Source → github
+
+This separation keeps the schema extensible.
+
+---
+
+## Why Store AI Summary?
+
+The summary enables:
+
+- Dashboard previews
+- Faster recommendations
+- Search previews
+- Insights
+
+without repeatedly invoking the LLM.
+
+---
+
+## Why Store Statistics?
+
+Statistics such as page count, word count, and reading time are computed once during ingestion.
+
+This avoids repeated parsing while enabling:
+
+- Rich previews
+- Reading analytics
+- Personalized insights
+- Dashboard metrics
+
+---
+
+## Why Store SHA-256 Hash?
+
+The content hash enables:
+
+- Duplicate detection
+- Integrity verification
+- Embedding regeneration
+- Storage optimization
+
+---
+
+## Why Store Version?
+
+Future document editing can regenerate embeddings while maintaining version history.
+
+---
+
+# 18.12 Business Rules
+
+- Every document belongs to exactly one user.
+- Every document belongs to exactly one folder.
+- Documents cannot exist outside the folder hierarchy.
+- Every uploaded document is immutable.
+- AI-generated artifacts are stored separately from the original file.
+- Documents are excluded from retrieval immediately after soft deletion.
+- Archived documents remain searchable.
+- Favorites are virtual collections implemented using `is_favorite`.
+- Duplicate document uploads are prevented using `(profile_id, content_hash)`.
+- Every document has exactly one processing lifecycle state.
+- Only documents with `processing_status = 'ready'` participate in AI retrieval.
+
+---
+
+# 18.13 Future Expansion
+
+Future versions may introduce:
+
+- OCR Metadata
+- Thumbnail Images
+- Document Tags
+- Labels
+- Semantic Categories
+- Custom Metadata
+- Version History
+- Document Sharing
+- External Synchronization
+- Encryption Metadata
+- Digital Signatures
+
+---
+
+# 18.14 Summary
+
+The `documents` table serves as the authoritative metadata layer for every knowledge asset within KnowledgeOS.
+
+By separating immutable source files, structured metadata, AI-generated artifacts, and vector representations, the design provides a scalable, secure, and AI-native foundation. Rich metadata, lifecycle tracking, cached analytics, and extensible processing states ensure that documents integrate seamlessly with the RAG pipeline, conversational AI, insights engine, and future platform capabilities while maintaining strict user isolation and high retrieval performance.
+
+---

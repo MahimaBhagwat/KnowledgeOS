@@ -1,0 +1,508 @@
+# KnowledgeOS - Database Design
+
+# Part 6 - CHat Sessions Table
+
+---
+
+# 20. Table — Chat Sessions
+
+---
+
+# 20.1 Purpose
+
+The `chat_sessions` table represents a single conversation between a user and the KnowledgeOS AI assistant.
+
+A chat session acts as the parent container for all messages exchanged during a conversation. It maintains conversation metadata, user preferences, retrieval settings, and conversation state while individual user and assistant messages are stored separately in the `chat_messages` table.
+
+The separation of sessions and messages provides:
+
+- Better scalability
+- Faster chat history loading
+- Cleaner conversation management
+- Improved analytics
+- Support for future conversation branching
+- Easier synchronization with AI memory systems
+
+Each chat session belongs exclusively to one authenticated user.
+
+---
+
+# 20.2 Relationships
+
+```text
+profiles
+
+│
+
+└──────────── chat_sessions
+
+                    │
+
+                    │ 1 : N
+
+                    ▼
+
+              chat_messages
+```
+
+A user may own multiple chat sessions.
+
+Each chat session contains multiple messages.
+
+A message cannot exist without a parent session.
+
+---
+
+# 20.3 Session Lifecycle
+
+```text
+New Chat
+
+↓
+
+Chat Session Created
+
+↓
+
+Messages Added
+
+↓
+
+Conversation Memory Updated
+
+↓
+
+Conversation Archived
+
+↓
+
+(Optional)
+
+Conversation Deleted
+```
+
+A session remains active until the user deletes it.
+
+Deleting a session permanently removes all associated messages.
+
+---
+
+# 20.4 Table Schema
+
+| Column | Data Type | Nullable | Default | Description |
+|---------|-----------|----------|----------|-------------|
+| id | UUID | No | gen_random_uuid() | Primary Key |
+| profile_id | UUID | No | — | Owner of the conversation |
+| title | VARCHAR(255) | No | 'New Chat' | Conversation title |
+| summary | TEXT | Yes | NULL | AI-generated conversation summary |
+| total_messages | INTEGER | No | 0 | Cached message count |
+| last_message_at | TIMESTAMPTZ | Yes | NULL | Timestamp of latest message |
+| last_accessed_at | TIMESTAMPTZ | Yes | NULL | Last opened by user |
+| retrieval_enabled | BOOLEAN | No | TRUE | Enable RAG retrieval |
+| planner_enabled | BOOLEAN | No | TRUE | Enable Planner Agent |
+| reviewer_enabled | BOOLEAN | No | TRUE | Enable Reviewer Agent |
+| streaming_enabled | BOOLEAN | No | TRUE | Enable token streaming |
+| is_pinned | BOOLEAN | No | FALSE | Pin conversation |
+| is_archived | BOOLEAN | No | FALSE | Archive conversation |
+| is_deleted | BOOLEAN | No | FALSE | Soft delete |
+| deleted_at | TIMESTAMPTZ | Yes | NULL | Soft delete timestamp |
+| created_at | TIMESTAMPTZ | No | NOW() | Creation timestamp |
+| updated_at | TIMESTAMPTZ | No | NOW() | Last modification |
+
+---
+
+# 20.5 Constraints
+
+## Primary Key
+
+```sql
+PRIMARY KEY (id);
+```
+
+---
+
+## Foreign Key
+
+```sql
+FOREIGN KEY (profile_id)
+
+REFERENCES profiles(id)
+
+ON DELETE CASCADE;
+```
+
+Deleting a user automatically removes all conversations.
+
+---
+
+## Check Constraints
+
+```sql
+CHECK(total_messages >= 0);
+```
+
+---
+
+```sql
+CHECK(title <> '');
+```
+
+Conversation titles cannot be empty.
+
+---
+
+# 20.6 Indexes
+
+| Index | Purpose |
+|--------|---------|
+| idx_chat_sessions_profile | Retrieve user conversations |
+| idx_chat_sessions_last_message | Sort recent chats |
+| idx_chat_sessions_archived | Archive filtering |
+| idx_chat_sessions_deleted | Recently Deleted |
+| idx_chat_sessions_pinned | Pinned chats |
+
+Composite indexes
+
+```sql
+CREATE INDEX idx_chat_sessions_profile_recent
+
+ON chat_sessions(profile_id, last_message_at DESC);
+```
+
+---
+
+```sql
+CREATE INDEX idx_chat_sessions_profile_deleted
+
+ON chat_sessions(profile_id, is_deleted);
+```
+
+---
+
+```sql
+CREATE INDEX idx_chat_sessions_profile_archived
+
+ON chat_sessions(profile_id, is_archived);
+```
+
+---
+
+# 20.7 Triggers
+
+## Automatic Timestamp
+
+```text
+BEFORE UPDATE
+
+↓
+
+updated_at = NOW()
+```
+
+---
+
+## Message Counter Trigger
+
+Whenever a message is inserted or deleted,
+
+the parent session automatically updates:
+
+- total_messages
+- last_message_at
+
+This keeps conversation metadata synchronized without requiring expensive COUNT() queries.
+
+---
+
+## Conversation Summary Trigger
+
+After a configurable number of messages (for example, every 20 messages), a background worker may generate or refresh the AI-generated conversation summary.
+
+The summary is used for:
+
+- Conversation previews
+- Search
+- Future memory compression
+- Dashboard recommendations
+
+---
+
+# 20.8 Chat Session Lifecycle
+
+```text
+User Starts New Chat
+
+↓
+
+Create Chat Session
+
+↓
+
+Session Appears in Sidebar
+
+↓
+
+User Sends Messages
+
+↓
+
+AI Responds
+
+↓
+
+Conversation Memory Updated
+
+↓
+
+(Optional)
+
+AI Generates Session Summary
+
+↓
+
+Conversation Continues
+
+↓
+
+Archive / Delete
+```
+
+A chat session acts as the long-term container for an entire conversation.
+
+Individual messages remain immutable and are stored separately in the `chat_messages` table.
+
+---
+
+# 20.9 Conversation State
+
+Each session maintains its own conversational context.
+
+The session tracks:
+
+- Conversation title
+- AI-generated summary
+- Recent interaction timestamp
+- Retrieval preferences
+- Agent configuration
+- Conversation metadata
+
+The actual conversation memory used by the LLM is reconstructed dynamically from the associated chat messages rather than stored as one continuously growing prompt.
+
+This approach keeps context management scalable while supporting long-running conversations.
+
+---
+
+# 20.10 Session Storage Strategy
+
+KnowledgeOS separates conversational data into two layers.
+
+```text
+Chat Session
+
+↓
+
+Conversation Metadata
+
+↓
+
+Chat Messages
+```
+
+The session stores only lightweight metadata.
+
+Individual user prompts and AI responses are stored inside the `chat_messages` table.
+
+This separation enables:
+
+- Faster chat history loading
+- Smaller database rows
+- Efficient pagination
+- Independent message retrieval
+- Easier analytics
+
+---
+
+# 20.11 AI Session Configuration
+
+Every conversation maintains its own AI configuration.
+
+This allows future conversations to behave differently without affecting other chats.
+
+Configuration currently includes:
+
+- Retrieval Enabled
+- Planner Agent Enabled
+- Reviewer Agent Enabled
+- Streaming Enabled
+
+Future versions may support:
+
+- Different LLM providers
+- Temperature selection
+- Maximum context size
+- Custom system prompts
+- Tool permissions
+
+---
+
+# 20.12 Conversation Summary
+
+Long conversations may contain hundreds of messages.
+
+Instead of displaying only the first message,
+
+KnowledgeOS periodically generates an AI summary.
+
+Example:
+
+```text
+System Design Interview Preparation
+
+Topics Discussed
+
+• Load Balancers
+
+• Caching
+
+• Database Replication
+
+• Message Queues
+```
+
+Conversation summaries improve:
+
+- Sidebar previews
+- Search
+- Recommendations
+- Memory compression
+
+Summaries never replace the original conversation history.
+
+---
+
+# 20.13 Conversation Search
+
+Conversation search operates on:
+
+- Title
+- AI Summary
+- Message Content (future)
+- Metadata
+
+Future semantic search may also index conversation summaries inside ChromaDB.
+
+This enables users to quickly locate previous discussions.
+
+---
+
+# 20.14 Design Decisions
+
+## Why Separate Sessions from Messages?
+
+Keeping conversation metadata separate from individual messages:
+
+- Reduces row size
+- Simplifies queries
+- Improves scalability
+- Enables efficient pagination
+
+This mirrors the architecture used by many production conversational AI systems.
+
+---
+
+## Why Store Cached Message Count?
+
+Displaying conversation history should not require repeatedly executing expensive COUNT() queries.
+
+The cached `total_messages` field provides instant statistics while remaining synchronized through database triggers.
+
+---
+
+## Why Store Conversation Summary?
+
+Conversation summaries allow:
+
+- Better sidebar previews
+- Faster search
+- Future memory compression
+- Personalized recommendations
+
+without repeatedly processing the full conversation.
+
+---
+
+## Why Store AI Configuration Per Session?
+
+Conversation behavior may evolve over time.
+
+Storing configuration at the session level allows:
+
+- Different retrieval modes
+- Different AI models
+- Custom prompts
+- Experimental features
+
+without changing the overall user profile.
+
+---
+
+## Why Support Soft Delete?
+
+Soft deletion provides:
+
+- Accidental deletion recovery
+- Future restore functionality
+- Safer data management
+- Improved user experience
+
+Deleted conversations remain invisible to the user interface.
+
+---
+
+# 20.15 Business Rules
+
+- Every chat session belongs to exactly one authenticated user.
+- Every message belongs to exactly one chat session.
+- A user may own unlimited chat sessions.
+- Session titles may be renamed by the user.
+- Newly created conversations use the default title **"New Chat"** until renamed or automatically summarized.
+- Deleting a session permanently deletes all associated messages.
+- Archived conversations remain searchable unless explicitly deleted.
+- Pinned conversations always appear before non-pinned conversations.
+- Soft-deleted conversations are excluded from the application interface.
+- AI summaries never replace the original conversation history.
+- Retrieval settings are applied independently for each conversation.
+
+---
+
+# 20.16 Future Expansion
+
+Future versions may introduce:
+
+- Conversation branching
+- Shared conversations
+- Team workspaces
+- Conversation export
+- Markdown export
+- PDF export
+- Conversation tags
+- Folder organization for chats
+- Semantic conversation search
+- AI memory compression
+- Multi-agent conversations
+- Voice conversation history
+- Conversation replay
+
+The current schema supports these features without requiring structural redesign.
+
+---
+
+# 20.17 Summary
+
+The `chat_sessions` table serves as the organizational layer for conversational interactions within KnowledgeOS.
+
+By separating lightweight conversation metadata from individual chat messages, the architecture supports scalable conversation management, efficient history loading, AI-generated summaries, configurable retrieval behavior, and future conversational enhancements.
+
+This design ensures that each conversation remains isolated, searchable, extensible, and tightly integrated with the broader Retrieval-Augmented Generation (RAG) pipeline while maintaining excellent performance for long-running AI interactions.
+
+---

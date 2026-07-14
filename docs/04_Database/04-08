@@ -1,0 +1,998 @@
+# KnowledgeOS - Database Design
+
+# Part 8 - User Preferences Table, Insights Table, Database Summary
+
+# 22. Table — User Preferences
+
+---
+
+# 22.1 Purpose
+
+The `user_preferences` table stores personalized application settings for each user.
+
+Unlike the `profiles` table, which stores user identity information, this table manages configurable application behavior, AI preferences, interface customization, and future personalization settings.
+
+Keeping preferences separate from profile information allows application settings to evolve independently without affecting authentication or user identity.
+
+Each authenticated user has exactly one preferences record.
+
+---
+
+# 22.2 Relationships
+
+```text
+profiles
+
+│
+
+│ 1 : 1
+
+▼
+
+user_preferences
+```
+
+Each profile owns exactly one preference record.
+
+Preferences cannot exist without an associated profile.
+
+---
+
+# 22.3 Preference Categories
+
+KnowledgeOS groups preferences into the following categories:
+
+### AI Preferences
+
+- Preferred LLM Provider
+- Streaming Responses
+- Planner Agent
+- Reviewer Agent
+- Retrieval Settings
+
+---
+
+### UI Preferences
+
+- Theme
+- Sidebar State
+- Default Landing Page
+- Font Size
+
+---
+
+### Chat Preferences
+
+- Auto Generate Chat Titles
+- Auto Save Conversations
+- Citation Display
+- Markdown Rendering
+
+---
+
+### Notification Preferences
+
+- Email Notifications
+- Product Updates
+- Security Alerts
+
+---
+
+### Privacy Preferences
+
+- Conversation History
+- Analytics Collection
+- Future Data Sharing Controls
+
+---
+
+# 22.4 Table Schema
+
+| Column | Data Type | Nullable | Default | Description |
+|---------|-----------|----------|----------|-------------|
+| id | UUID | No | gen_random_uuid() | Primary Key |
+| profile_id | UUID | No | — | User Profile |
+| preferred_llm | VARCHAR(100) | Yes | NULL | Preferred AI Provider |
+| streaming_enabled | BOOLEAN | No | TRUE | Enable Streaming |
+| planner_enabled | BOOLEAN | No | TRUE | Enable Planner |
+| reviewer_enabled | BOOLEAN | No | TRUE | Enable Reviewer |
+| theme | VARCHAR(20) | No | 'light' | UI Theme |
+| sidebar_collapsed | BOOLEAN | No | FALSE | Sidebar State |
+| default_homepage | VARCHAR(50) | No | 'home' | Initial Landing Page |
+| auto_generate_titles | BOOLEAN | No | TRUE | AI Chat Titles |
+| auto_save_chats | BOOLEAN | No | TRUE | Automatic Conversation Saving |
+| show_citations | BOOLEAN | No | TRUE | Display Source Citations |
+| markdown_rendering | BOOLEAN | No | TRUE | Render Markdown |
+| email_notifications | BOOLEAN | No | TRUE | Email Notifications |
+| security_notifications | BOOLEAN | No | TRUE | Security Alerts |
+| analytics_enabled | BOOLEAN | No | FALSE | Anonymous Analytics |
+| created_at | TIMESTAMPTZ | No | NOW() | Created Timestamp |
+| updated_at | TIMESTAMPTZ | No | NOW() | Last Updated |
+
+---
+
+# 22.5 Constraints
+
+## Primary Key
+
+```sql
+PRIMARY KEY (id);
+```
+
+---
+
+## Foreign Key
+
+```sql
+FOREIGN KEY (profile_id)
+
+REFERENCES profiles(id)
+
+ON DELETE CASCADE;
+```
+
+Each preference record is automatically removed if its parent profile is deleted.
+
+---
+
+## Unique Constraint
+
+Each user may have only one preference record.
+
+```sql
+UNIQUE(profile_id);
+```
+
+---
+
+## Check Constraints
+
+```sql
+CHECK(theme IN ('light','dark'));
+```
+
+---
+
+```sql
+CHECK(default_homepage IN ('home','documents','chat','insights'));
+```
+
+---
+
+# 22.6 Indexes
+
+| Index | Purpose |
+|--------|---------|
+| idx_preferences_profile | Retrieve user settings |
+
+```sql
+CREATE UNIQUE INDEX idx_preferences_profile
+
+ON user_preferences(profile_id);
+```
+
+---
+
+# 22.7 Triggers
+
+## Automatic Timestamp
+
+```text
+BEFORE UPDATE
+
+↓
+
+updated_at = NOW()
+```
+
+---
+
+## Default Preference Creation
+
+Whenever a new profile is created,
+
+a default preference record is automatically generated.
+
+```text
+Profile Created
+
+↓
+
+Insert Default Preferences
+```
+
+This ensures every authenticated user always has a valid configuration.
+
+---
+
+# 22.8 Preference Management
+
+User preferences allow every KnowledgeOS workspace to be personalized without affecting other users.
+
+Whenever a preference is updated, the changes take effect immediately and are automatically reflected across the application.
+
+Example:
+
+```text
+User Changes Theme
+
+↓
+
+Update user_preferences
+
+↓
+
+Frontend Receives New Preference
+
+↓
+
+UI Updates Instantly
+```
+
+Preferences remain persistent across sessions and devices.
+
+---
+
+# 22.9 AI Configuration
+
+The AI-related preferences control the default behavior of every newly created chat session.
+
+Current configurable options include:
+
+- Preferred LLM Provider
+- Streaming Responses
+- Planner Agent
+- Reviewer Agent
+
+When a new conversation is created, these preferences initialize the session configuration.
+
+Future modifications to an individual conversation do not alter the user's global preferences.
+
+---
+
+# 22.10 UI Personalization
+
+The user interface adapts according to stored preferences.
+
+Supported customization includes:
+
+- Theme
+- Sidebar state
+- Default landing page
+- Markdown rendering
+- Citation visibility
+
+Future versions may include:
+
+- Accent colors
+- Font size
+- Density mode
+- Custom layouts
+- Accessibility options
+
+---
+
+# 22.11 Notification Preferences
+
+Notification settings determine how the platform communicates with the user.
+
+Current notification types include:
+
+- Email notifications
+- Security alerts
+
+Future notification categories may include:
+
+- AI processing completion
+- Weekly learning reports
+- Insight generation
+- Product announcements
+- Shared document notifications
+
+---
+
+# 22.12 Privacy Preferences
+
+KnowledgeOS gives users control over privacy-related application behavior.
+
+Current preferences include:
+
+- Analytics collection
+- Conversation history visibility
+
+Future versions may support:
+
+- Personalized AI learning opt-in
+- Cross-device synchronization controls
+- Data export preferences
+- Third-party integration permissions
+
+These settings are independent of authentication and document ownership.
+
+---
+
+# 22.13 Design Decisions
+
+## Why Separate Preferences from Profiles?
+
+Authentication data changes infrequently, whereas application settings evolve regularly.
+
+Separating these concerns keeps the authentication model clean while allowing rapid expansion of configurable features.
+
+---
+
+## Why Create Default Preferences Automatically?
+
+Automatically generating a default preference record ensures that every authenticated user has a complete configuration immediately after account creation.
+
+This eliminates null checks throughout the application and simplifies backend logic.
+
+---
+
+## Why Store AI Preferences Globally?
+
+Most users expect consistent AI behavior across conversations.
+
+Global preferences provide sensible defaults while still allowing conversation-specific overrides when needed.
+
+---
+
+## Why Store UI Preferences in the Database?
+
+Persisting preferences in PostgreSQL allows users to experience a consistent interface across multiple devices and browser sessions.
+
+---
+
+# 22.14 Business Rules
+
+- Every authenticated user has exactly one preferences record.
+- Preference records cannot exist without a corresponding user profile.
+- Preferences are automatically created during account registration.
+- Users may modify their own preferences at any time.
+- Preference changes never affect existing conversations unless explicitly synchronized.
+- AI preference values are applied only to newly created chat sessions.
+- Preference updates are immediately reflected in the user interface.
+- Users cannot access or modify another user's preferences.
+- Preference records are permanently removed when the associated profile is deleted.
+
+---
+
+# 22.15 Future Expansion
+
+The current schema is designed to support future personalization features without structural redesign.
+
+Potential enhancements include:
+
+- Multiple AI provider selection
+- Preferred embedding model
+- Default retrieval depth
+- Default response style
+- Citation format selection
+- Language preferences
+- Accessibility settings
+- Keyboard shortcut customization
+- Custom prompt templates
+- Workspace personalization
+- Plugin preferences
+- Voice AI configuration
+
+These features can be integrated by extending the existing preference model.
+
+---
+
+# 22.16 Summary
+
+The `user_preferences` table centralizes all configurable user settings within KnowledgeOS.
+
+By separating personalization data from authentication and application logic, the system provides a scalable and maintainable approach to managing AI behavior, interface customization, notification preferences, and privacy controls.
+
+This design ensures a consistent user experience across devices while remaining flexible enough to accommodate future personalization capabilities without impacting the core database architecture.
+
+---
+
+# 23. Table — Insights
+
+---
+
+# 23.1 Purpose
+
+The `insights` table stores AI-generated observations, summaries, and personalized knowledge intelligence derived from a user's uploaded documents and conversations.
+
+Unlike chat messages, which are generated in response to explicit user queries, insights are proactively generated by background AI agents to help users better understand, organize, and connect their knowledge.
+
+Insights represent one of the core differentiators of KnowledgeOS by transforming isolated information into actionable intelligence.
+
+Each insight belongs exclusively to one authenticated user.
+
+---
+
+# 23.2 Relationships
+
+```text
+profiles
+
+│
+
+│ 1 : N
+
+▼
+
+insights
+```
+
+A user may own multiple insights.
+
+Each insight belongs to exactly one profile.
+
+Insights are generated using one or more uploaded documents and may optionally reference one or more chat sessions.
+
+---
+
+# 23.3 Insight Generation Pipeline
+
+```text
+Documents
+
++
+
+Chat History
+
+↓
+
+Knowledge Retrieval
+
+↓
+
+Knowledge Synthesis
+
+↓
+
+Insight Generator
+
+↓
+
+Reviewer Agent
+
+↓
+
+Insight Saved
+
+↓
+
+Displayed on Dashboard
+```
+
+Insights are generated asynchronously and never block normal user interactions.
+
+---
+
+# 23.4 Enumeration
+
+## Insight Type
+
+```sql
+CREATE TYPE insight_type_enum AS ENUM (
+
+'summary',
+
+'connection',
+
+'knowledge_gap',
+
+'learning_progress',
+
+'roadmap',
+
+'recommendation',
+
+'contradiction',
+
+'trend'
+
+);
+```
+
+---
+
+## Insight Status
+
+```sql
+CREATE TYPE insight_status_enum AS ENUM (
+
+'pending',
+
+'processing',
+
+'completed',
+
+'failed'
+
+);
+```
+
+---
+
+# 23.5 Table Schema
+
+| Column | Data Type | Nullable | Default | Description |
+|---------|-----------|----------|----------|-------------|
+| id | UUID | No | gen_random_uuid() | Primary Key |
+| profile_id | UUID | No | — | Owner |
+| title | VARCHAR(255) | No | — | Insight title |
+| insight_type | insight_type_enum | No | — | Insight category |
+| status | insight_status_enum | No | pending | Generation status |
+| content | TEXT | No | — | AI-generated insight |
+| source_documents | JSONB | Yes | NULL | Referenced document IDs |
+| source_chunks | JSONB | Yes | NULL | Referenced chunk IDs |
+| confidence_score | NUMERIC(5,2) | Yes | NULL | AI confidence |
+| generated_by | VARCHAR(100) | Yes | NULL | Agent / Model |
+| viewed | BOOLEAN | No | FALSE | User viewed |
+| bookmarked | BOOLEAN | No | FALSE | Saved by user |
+| created_at | TIMESTAMPTZ | No | NOW() | Created timestamp |
+| updated_at | TIMESTAMPTZ | No | NOW() | Updated timestamp |
+
+---
+
+# 23.6 Constraints
+
+## Primary Key
+
+```sql
+PRIMARY KEY (id);
+```
+
+---
+
+## Foreign Key
+
+```sql
+FOREIGN KEY (profile_id)
+
+REFERENCES profiles(id)
+
+ON DELETE CASCADE;
+```
+
+---
+
+## Check Constraints
+
+```sql
+CHECK(confidence_score BETWEEN 0 AND 100);
+```
+
+---
+
+# 23.7 Indexes
+
+| Index | Purpose |
+|--------|---------|
+| idx_insights_profile | Retrieve user insights |
+| idx_insights_type | Filter by category |
+| idx_insights_status | Background processing |
+| idx_insights_bookmarked | Favorites |
+| idx_insights_created | Recent insights |
+
+Composite Index
+
+```sql
+CREATE INDEX idx_insights_profile_created
+
+ON insights(profile_id, created_at DESC);
+```
+
+---
+
+# 23.8 Triggers
+
+## Automatic Timestamp
+
+```text
+BEFORE UPDATE
+
+↓
+
+updated_at = NOW()
+```
+
+---
+
+## Background Generation
+
+Insight generation occurs asynchronously.
+
+```text
+Documents Updated
+
+↓
+
+Background Queue
+
+↓
+
+Insight Generator
+
+↓
+
+Save Insight
+```
+
+This ensures that AI processing never blocks document ingestion or user interactions.
+
+---
+
+# 23.9 Insight Categories
+
+KnowledgeOS initially supports several categories of insights:
+
+### Summary
+
+Concise overviews of uploaded knowledge.
+
+---
+
+### Connections
+
+Relationships discovered across multiple documents.
+
+---
+
+### Knowledge Gaps
+
+Topics that appear incomplete or underrepresented.
+
+---
+
+### Learning Progress
+
+AI observations regarding study coverage.
+
+---
+
+### Roadmap
+
+Suggested learning sequence based on uploaded material.
+
+---
+
+### Recommendations
+
+Suggested next topics, documents, or areas of focus.
+
+---
+
+### Contradictions
+
+Conflicting information detected across documents.
+
+---
+
+### Trends
+
+Patterns identified throughout the user's knowledge base.
+
+---
+
+# 23.10 Design Decisions
+
+## Why Store Insights Separately?
+
+Insights are long-lived AI artifacts rather than conversational responses.
+
+Separating them enables independent generation, management, bookmarking, and future analytics.
+
+---
+
+## Why Store Source References?
+
+Every insight maintains traceability by referencing the supporting documents and chunks used during generation.
+
+This improves explainability and user trust.
+
+---
+
+## Why Generate Insights Asynchronously?
+
+Insight generation can be computationally expensive.
+
+Running it in the background prevents delays during uploads and conversations while keeping the user experience responsive.
+
+---
+
+# 23.11 Business Rules
+
+- Every insight belongs to exactly one authenticated user.
+- Insights are generated only from documents the user owns.
+- Source references are preserved for every generated insight.
+- Users may bookmark insights for future reference.
+- Deleted documents are excluded from future insight generation.
+- Insights generated from deleted documents may be regenerated or removed during background maintenance.
+
+---
+
+# 23.12 Future Expansion
+
+Future versions may support:
+
+- Weekly learning reports
+- Knowledge graph insights
+- Cross-project insights
+- Team insights
+- AI-generated flashcards
+- Personalized quizzes
+- Research opportunity detection
+- Duplicate knowledge detection
+- Skill progression tracking
+- Time-based learning analytics
+
+---
+
+# 23.13 Summary
+
+The `insights` table represents the intelligence layer of KnowledgeOS.
+
+Unlike traditional AI assistants that respond only when prompted, KnowledgeOS proactively generates personalized knowledge insights by synthesizing information across documents and conversations.
+
+This architecture enables users to discover hidden relationships, identify knowledge gaps, monitor learning progress, and receive AI-driven recommendations while maintaining complete source traceability and user-specific data isolation.
+
+---
+
+
+
+
+
+# 24. Database Summary
+
+---
+
+# 24.1 Complete Database Architecture
+
+KnowledgeOS follows a hybrid storage architecture that combines a relational database for transactional consistency with a vector database for semantic retrieval.
+
+```text
+                    ┌──────────────────────────────┐
+                    │         Frontend             │
+                    │         (React)              │
+                    └──────────────┬───────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────┐
+                    │        FastAPI Backend        │
+                    └──────────────┬───────────────┘
+                                   │
+                 ┌─────────────────┴──────────────────┐
+                 │                                    │
+                 ▼                                    ▼
+      ┌──────────────────────┐            ┌─────────────────────┐
+      │     PostgreSQL       │            │      ChromaDB       │
+      │                      │            │                     │
+      │ Profiles             │            │ Embeddings          │
+      │ Folders              │            │ Chunk Text          │
+      │ Documents            │            │ Vector Metadata     │
+      │ Document Chunks      │            │                     │
+      │ Chat Sessions        │            └─────────────────────┘
+      │ Chat Messages        │
+      │ User Preferences     │
+      │ Insights             │
+      └──────────────────────┘
+```
+
+The relational database stores structured application data, while ChromaDB stores semantic vector representations used by the Retrieval-Augmented Generation (RAG) pipeline.
+
+---
+
+# 24.2 Database Responsibilities
+
+## PostgreSQL
+
+PostgreSQL serves as the **source of truth** for all application data.
+
+It manages:
+
+- User authentication extensions
+- Folder organization
+- Document metadata
+- Chunk metadata
+- Chat history
+- User preferences
+- AI-generated insights
+- Audit timestamps
+- Relationships
+- Constraints
+- Indexes
+
+The database guarantees transactional consistency and strong referential integrity.
+
+---
+
+## ChromaDB
+
+ChromaDB stores semantic representations of document chunks.
+
+Each vector record contains:
+
+- Embedding vector
+- Chunk text
+- Chunk UUID
+- Document UUID
+- User UUID
+- Version
+- Retrieval metadata
+
+This enables fast semantic similarity search without repeatedly querying PostgreSQL.
+
+---
+
+# 24.3 Complete Data Flow
+
+```text
+Upload Document
+
+↓
+
+PostgreSQL
+
+↓
+
+Document Parser
+
+↓
+
+Chunk Generator
+
+↓
+
+Document Chunks
+
+↓
+
+Embedding Model
+
+↓
+
+ChromaDB
+
+↓
+
+RAG Retrieval
+
+↓
+
+Prompt Builder
+
+↓
+
+LLM
+
+↓
+
+Reviewer
+
+↓
+
+Final Response
+
+↓
+
+Chat Messages
+
+↓
+
+Insights
+```
+
+The relational and vector databases work together throughout the AI pipeline.
+
+---
+
+# 24.4 Database Design Principles
+
+The KnowledgeOS database architecture follows several core engineering principles.
+
+### Single Source of Truth
+
+Every entity has one authoritative storage location.
+
+---
+
+### Strong Referential Integrity
+
+All relationships are protected through foreign keys and database constraints.
+
+---
+
+### User Isolation
+
+Every record belongs to a single authenticated user.
+
+Queries are always scoped using the user's profile identifier.
+
+---
+
+### Soft Deletion
+
+Critical user data follows a multi-stage deletion lifecycle.
+
+Soft-deleted records remain recoverable during the retention period while becoming immediately invisible to retrieval.
+
+---
+
+### Immutable Knowledge
+
+Document chunks and AI-generated messages are immutable.
+
+Updates generate new versions rather than modifying existing records.
+
+---
+
+### Separation of Concerns
+
+Transactional data remains inside PostgreSQL.
+
+Semantic retrieval remains inside ChromaDB.
+
+Each system performs the task for which it is best suited.
+
+---
+
+### Future Scalability
+
+The schema has been designed to accommodate:
+
+- Knowledge Graphs
+- Voice AI
+- OCR
+- Hybrid Search
+- Team Workspaces
+- Plugin Ecosystem
+- Multiple LLM Providers
+- Multi-modal Knowledge
+- Advanced Analytics
+
+without requiring structural redesign.
+
+---
+
+# 24.5 Database Statistics
+
+For the MVP, the database consists of:
+
+| Component | Count |
+|-----------|------:|
+| PostgreSQL Tables | 8 |
+| PostgreSQL Enums | 6+ |
+| ChromaDB Collections | 1 |
+| Foreign Keys | 10+ |
+| Indexes | 30+ |
+| Automatic Triggers | 12+ |
+| Background Workers | Multiple |
+
+The architecture follows modern production practices used by scalable AI applications.
+
+---
+
+# 24.6 Interview Talking Points
+
+During interviews, the database architecture can be summarized using the following key points:
+
+- PostgreSQL is the transactional source of truth.
+- ChromaDB stores semantic embeddings and chunk text for Retrieval-Augmented Generation.
+- Every document is transformed into immutable chunks.
+- Each chunk maps one-to-one with a ChromaDB vector.
+- All user data is isolated using `profile_id`.
+- Version synchronization prevents stale embeddings during retrieval.
+- Soft deletion immediately removes deleted knowledge from the AI engine while preserving recoverability.
+- Rich metadata enables precise citations and explainable AI responses.
+- The schema is modular, scalable, and designed for future AI capabilities.
+
+These principles demonstrate a production-oriented approach to designing data systems for AI-powered applications.
+
+---
+
+# 24.7 Conclusion
+
+The KnowledgeOS database architecture provides a scalable, secure, and maintainable foundation for an AI-powered personal knowledge operating system.
+
+By combining PostgreSQL's transactional guarantees with ChromaDB's semantic search capabilities, the system efficiently manages structured application data while enabling intelligent Retrieval-Augmented Generation. Carefully designed schemas, strict referential integrity, version synchronization, immutable knowledge representations, and user-level isolation ensure reliability, explainability, and future scalability.
+
+This architecture supports the current MVP while providing a strong foundation for advanced capabilities such as multimodal knowledge management, proactive AI insights, hybrid search, knowledge graphs, voice interfaces, and collaborative workspaces, allowing KnowledgeOS to evolve without requiring significant database redesign.

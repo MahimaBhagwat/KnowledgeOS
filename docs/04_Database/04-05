@@ -1,0 +1,946 @@
+# KnowledgeOS - Database Design
+
+# Part 5 - Document Chunks Table
+
+---
+
+# 19. Table — Document Chunks
+
+---
+
+# 19.1 Purpose
+
+The `document_chunks` table represents the smallest retrievable unit of knowledge within KnowledgeOS.
+
+Instead of retrieving entire documents during Retrieval-Augmented Generation (RAG), the AI retrieves one or more semantically relevant chunks.
+
+This approach provides:
+
+- Faster retrieval
+- Higher semantic relevance
+- Better citation quality
+- Lower token consumption
+- Improved answer accuracy
+
+Each chunk is tightly coupled to one parent document and one corresponding embedding stored inside ChromaDB.
+
+The original document always remains the source of truth, while chunks serve as AI-optimized representations of the document's content.
+
+---
+
+# 19.2 Relationships
+
+```text
+profiles
+
+│
+
+└──────────── documents
+
+                    │
+
+                    │ 1 : N
+
+                    ▼
+
+             document_chunks
+
+                    │
+
+                    │ 1 : 1
+
+                    ▼
+
+               ChromaDB Vector
+```
+
+Each document contains multiple chunks.
+
+Each chunk corresponds to exactly one vector record in ChromaDB.
+
+Chunks never exist without a parent document.
+
+---
+
+# 19.3 Chunk Architecture
+
+```text
+Original Document
+
+        │
+
+        ▼
+
+Document Parser
+
+        │
+
+        ▼
+
+Chunk Generator
+
+        │
+
+        ▼
+
+Chunk Metadata
+
+        │
+
+        ▼
+
+Embedding Generator
+
+        │
+
+        ▼
+
+ChromaDB
+```
+
+The parser produces ordered chunks.
+
+Each chunk receives:
+
+- Metadata
+- Ordering information
+- Version number
+- Embedding
+- Retrieval metadata
+
+---
+
+# 19.4 Enumeration
+
+## Embedding Status
+
+```sql
+CREATE TYPE embedding_status_enum AS ENUM (
+
+'pending',
+
+'processing',
+
+'ready',
+
+'failed'
+
+);
+```
+
+This tracks the embedding lifecycle independently from the parent document processing state.
+
+---
+
+# 19.5 Table Schema
+
+| Column | Data Type | Nullable | Default | Description |
+|---------|-----------|----------|----------|-------------|
+| id | UUID | No | gen_random_uuid() | Primary Key / Universal Chunk ID |
+| document_id | UUID | No | — | Parent document |
+| profile_id | UUID | No | — | Owner of the chunk |
+| chunk_index | INTEGER | No | — | Sequential chunk order |
+| chunk_text | TEXT | No | — | Chunk content |
+| heading_path | TEXT | Yes | NULL | Full document heading hierarchy |
+| page_number | INTEGER | Yes | NULL | Source page |
+| paragraph_number | INTEGER | Yes | NULL | Source paragraph |
+| start_character | INTEGER | Yes | NULL | Character offset |
+| end_character | INTEGER | Yes | NULL | Character offset |
+| token_count | INTEGER | No | 0 | Number of tokens |
+| overlap_tokens | INTEGER | No | 0 | Tokens shared with adjacent chunk |
+| previous_chunk_id | UUID | Yes | NULL | Previous chunk |
+| next_chunk_id | UUID | Yes | NULL | Next chunk |
+| version | INTEGER | No | 1 | Matches parent document version |
+| embedding_status | embedding_status_enum | No | pending | Embedding lifecycle |
+| importance_score | NUMERIC(5,2) | Yes | NULL | Future AI ranking |
+| relevance_score | NUMERIC(5,2) | Yes | NULL | Future reranker |
+| created_at | TIMESTAMPTZ | No | NOW() | Creation timestamp |
+| updated_at | TIMESTAMPTZ | No | NOW() | Last modification timestamp |
+
+---
+
+# 19.6 ChromaDB Mapping
+
+Each PostgreSQL chunk maps directly to one ChromaDB vector.
+
+```text
+PostgreSQL
+
+Chunk
+
+ID = 9fa2...
+
+↓
+
+ChromaDB
+
+Vector ID = 9fa2...
+```
+
+KnowledgeOS generates chunk UUIDs before embedding generation.
+
+The same UUID is used:
+
+- PostgreSQL Primary Key
+- ChromaDB Vector ID
+- Citation Engine
+- Retrieval Pipeline
+
+This guarantees one-to-one synchronization between relational and vector storage.
+
+---
+
+# 19.7 ChromaDB Metadata
+
+Each vector stored inside ChromaDB includes lightweight metadata for efficient filtering and retrieval.
+
+```text
+chunk_id
+
+document_id
+
+profile_id
+
+version
+
+chunk_index
+
+page_number
+
+document_type
+
+source_type
+
+language
+
+embedding_status
+```
+
+This metadata enables the retrieval engine to perform metadata filtering without issuing additional PostgreSQL queries during similarity search.
+
+---
+
+# 19.8 Chunk Ordering
+
+Chunks preserve their original document order using `chunk_index`.
+
+```text
+Chunk 0
+
+↓
+
+Chunk 1
+
+↓
+
+Chunk 2
+
+↓
+
+Chunk 3
+```
+
+The ordering enables:
+
+- Neighbor retrieval
+- Context reconstruction
+- Sequential citations
+- Future summarization pipelines
+
+---
+
+# 19.9 Chunk Overlap
+
+KnowledgeOS generates overlapping chunks to preserve semantic continuity across chunk boundaries.
+
+```text
+Chunk 1
+
+──────────────────────
+
+           overlap
+
+                ▼
+
+Chunk 2
+
+──────────────────────
+```
+
+The overlap size is recorded using:
+
+```text
+overlap_tokens
+```
+
+Tracking overlap metadata allows future chunking strategies to evolve without requiring schema changes.
+
+---
+
+# 19.10 Source Metadata
+
+Each chunk stores sufficient source metadata to support precise citations.
+
+Citation metadata includes:
+
+- Page number
+- Paragraph number
+- Character offsets
+- Heading hierarchy
+- Chunk index
+
+Example citation:
+
+```text
+Operating Systems.pdf
+
+Page 42
+
+Section:
+Process Synchronization
+
+Paragraph 3
+```
+
+This enables explainable AI responses with fine-grained traceability.
+
+---
+
+# 19.11 Version Synchronization
+
+Each chunk stores the same version number as its parent document.
+
+```text
+Document
+
+Version 4
+
+↓
+
+Chunk
+
+Version 4
+
+↓
+
+Embedding
+
+Version 4
+```
+
+During embedding regeneration, newly generated chunks inherit the updated version value.
+
+This version alignment allows the retrieval pipeline to validate that vectors correspond to the latest document state and prevents stale embeddings from participating in Retrieval-Augmented Generation (RAG).
+
+---
+
+# 19.12 Constraints
+
+## Primary Key
+
+```sql
+PRIMARY KEY (id);
+```
+
+---
+
+## Foreign Keys
+
+```sql
+FOREIGN KEY (document_id)
+
+REFERENCES documents(id)
+
+ON DELETE CASCADE;
+```
+
+If a document is permanently deleted, all associated chunks are automatically removed.
+
+---
+
+```sql
+FOREIGN KEY (profile_id)
+
+REFERENCES profiles(id)
+
+ON DELETE CASCADE;
+```
+
+This guarantees complete user isolation.
+
+---
+
+## Self-Referencing Foreign Keys
+
+```sql
+FOREIGN KEY (previous_chunk_id)
+
+REFERENCES document_chunks(id)
+
+ON DELETE SET NULL;
+```
+
+```sql
+FOREIGN KEY (next_chunk_id)
+
+REFERENCES document_chunks(id)
+
+ON DELETE SET NULL;
+```
+
+These relationships allow neighboring chunk retrieval while preventing circular deletion issues.
+
+---
+
+## Unique Constraints
+
+Each chunk position within a document must be unique.
+
+```sql
+UNIQUE(document_id, chunk_index);
+```
+
+This guarantees deterministic ordering for every document.
+
+---
+
+## Check Constraints
+
+```sql
+CHECK(chunk_index >= 0);
+```
+
+```sql
+CHECK(token_count >= 0);
+```
+
+```sql
+CHECK(overlap_tokens >= 0);
+```
+
+```sql
+CHECK(version >= 1);
+```
+
+```sql
+CHECK(
+start_character IS NULL
+OR end_character IS NULL
+OR start_character <= end_character
+);
+```
+
+---
+
+# 19.13 Indexes
+
+| Index | Purpose |
+|--------|---------|
+| idx_chunks_document | Retrieve all chunks of a document |
+| idx_chunks_profile | User isolation |
+| idx_chunks_status | Embedding queue |
+| idx_chunks_page | Citation lookup |
+| idx_chunks_version | Version validation |
+
+---
+
+### Composite Index
+
+```sql
+CREATE INDEX idx_chunks_document_order
+
+ON document_chunks(document_id, chunk_index);
+```
+
+Optimizes sequential reconstruction.
+
+---
+
+```sql
+CREATE INDEX idx_chunks_document_version
+
+ON document_chunks(document_id, version);
+```
+
+Supports version-aware retrieval.
+
+---
+
+```sql
+CREATE INDEX idx_chunks_profile_status
+
+ON document_chunks(profile_id, embedding_status);
+```
+
+Supports background embedding workers.
+
+---
+
+# 19.14 Triggers
+
+## Automatic Timestamp
+
+```text
+BEFORE UPDATE
+
+↓
+
+updated_at = NOW()
+```
+
+---
+
+## Embedding Queue Trigger
+
+Whenever a new chunk is inserted,
+
+its initial status becomes
+
+```text
+pending
+```
+
+The embedding worker automatically detects pending chunks and begins embedding generation.
+
+---
+
+## Version Synchronization
+
+Whenever a document version changes,
+
+all existing chunks become obsolete.
+
+The ingestion pipeline generates a completely new chunk set using the updated version number.
+
+Old chunks are removed only after successful regeneration.
+
+This prevents incomplete updates from affecting retrieval quality.
+
+---
+
+## Neighbor Link Generation
+
+After chunk generation completes,
+
+the backend automatically populates
+
+- previous_chunk_id
+- next_chunk_id
+
+for every chunk.
+
+Example
+
+```text
+Chunk 0
+
+↓
+
+Chunk 1
+
+↓
+
+Chunk 2
+
+↓
+
+Chunk 3
+```
+
+This enables efficient neighboring context retrieval.
+
+---
+
+# 19.15 Chunk Lifecycle
+
+```text
+Document Uploaded
+
+↓
+
+Parser
+
+↓
+
+Chunk Generator
+
+↓
+
+Chunk Metadata Created
+
+↓
+
+Chunk Saved
+
+↓
+
+Embedding Queue
+
+↓
+
+Embedding Generated
+
+↓
+
+Stored in ChromaDB
+
+↓
+
+Status = READY
+
+↓
+
+Available for Retrieval
+```
+
+---
+
+## Regeneration
+
+Whenever a document changes,
+
+KnowledgeOS never edits existing chunks.
+
+Instead,
+
+```text
+Old Chunks
+
+↓
+
+Marked Obsolete
+
+↓
+
+New Chunks Generated
+
+↓
+
+New Embeddings
+
+↓
+
+Old Chunks Removed
+```
+
+This guarantees retrieval consistency.
+
+---
+
+## Failed Embeddings
+
+If embedding generation fails,
+
+```text
+embedding_status = failed
+```
+
+The retry worker periodically retries failed chunks.
+
+Chunks marked as **failed** never participate in retrieval.
+
+---
+
+# 19.16 Retrieval Strategy
+
+The Retrieval Engine searches ChromaDB.
+
+Returned vectors provide
+
+```text
+chunk_id
+```
+
+↓
+
+Metadata validation
+
+↓
+
+Version validation
+
+↓
+
+Neighbor expansion
+
+↓
+
+Context assembly
+
+↓
+
+Prompt Builder
+
+↓
+
+LLM
+```
+
+This architecture minimizes PostgreSQL lookups while preserving citation quality.
+
+---
+
+# 19.17 Neighbor Retrieval
+
+KnowledgeOS retrieves neighboring chunks to improve context continuity.
+
+Instead of returning
+
+```text
+Chunk 18
+```
+
+the retrieval engine may expand to
+
+```text
+Chunk 17
+
+↓
+
+Chunk 18
+
+↓
+
+Chunk 19
+```
+
+Neighbor expansion improves:
+
+- Answer completeness
+- Citation continuity
+- Multi-step reasoning
+- Hallucination reduction
+
+The expansion window is configurable.
+
+---
+
+# 19.18 ChromaDB Synchronization
+
+Each PostgreSQL chunk has exactly one matching vector.
+
+```text
+PostgreSQL
+
+Chunk UUID
+
+↓
+
+ChromaDB
+
+Vector UUID
+```
+
+Both systems store the same
+
+- chunk_id
+- document_id
+- profile_id
+- version
+
+During retrieval,
+
+the pipeline is capable of validating version consistency before assembling the final context.
+
+If version mismatch occurs,
+
+the vector is ignored until regeneration completes.
+
+This prevents split-brain states between PostgreSQL and ChromaDB.
+
+---
+
+# 19.19 Design Decisions
+
+## Why Store Chunk Metadata in PostgreSQL?
+
+Relational metadata enables:
+
+- Fast filtering
+- Ordering
+- Version tracking
+- Citations
+- Analytics
+
+without querying the vector database.
+
+---
+
+## Why Store Chunk Text in ChromaDB?
+
+Keeping chunk text alongside embeddings allows the retrieval pipeline to assemble prompt context immediately after similarity search without issuing additional database lookups.
+
+This significantly reduces retrieval latency.
+
+---
+
+## Why One Chunk = One Vector?
+
+A strict one-to-one relationship simplifies:
+
+- Synchronization
+- Deletion
+- Regeneration
+- Version control
+- Citation mapping
+
+---
+
+## Why Immutable Chunks?
+
+Immutable chunks eliminate synchronization issues.
+
+Whenever a document changes,
+
+KnowledgeOS regenerates an entirely new chunk set instead of editing existing chunks.
+
+This greatly simplifies version management.
+
+---
+
+# 19.20 Business Rules
+
+- Every chunk belongs to exactly one document.
+- Every chunk belongs to exactly one authenticated user through its parent document.
+- Every chunk has exactly one corresponding embedding stored in ChromaDB.
+- Chunks never exist without a parent document.
+- Every chunk stores the same version number as its parent document.
+- Chunks are immutable after creation.
+- Updating a document always generates a completely new chunk set.
+- Chunks with `embedding_status = 'failed'` never participate in retrieval.
+- Only chunks whose parent document has `processing_status = 'ready'` may participate in Retrieval-Augmented Generation (RAG).
+- Soft-deleted documents immediately remove all associated chunks from retrieval through metadata filtering.
+- Permanently deleting a document automatically deletes all associated chunks and their embeddings.
+- Chunk ordering is preserved using `chunk_index`.
+- Neighbor relationships are maintained for context expansion during retrieval.
+- Chunk UUIDs are globally unique and reused as ChromaDB vector IDs.
+- Every retrieval request is scoped by `profile_id`, ensuring complete tenant isolation.
+
+---
+
+# 19.21 Future Expansion
+
+The current chunk architecture has been designed to support future enhancements without requiring structural redesign.
+
+Potential future capabilities include:
+
+### Adaptive Chunking
+
+Instead of fixed-size chunking, the ingestion pipeline may dynamically determine chunk boundaries based on semantic structure.
+
+---
+
+### Multi-Modal Chunks
+
+Support for:
+
+- OCR text
+- Images
+- Tables
+- Charts
+- Equations
+- Audio transcripts
+- Video transcripts
+
+All represented using the same chunk architecture.
+
+---
+
+### Hybrid Retrieval
+
+Combine:
+
+- Semantic similarity
+- Keyword search
+- Metadata filtering
+- BM25 ranking
+
+to improve retrieval quality.
+
+---
+
+### AI-Based Chunk Importance
+
+Background agents may compute:
+
+- Importance Score
+- Confidence Score
+- Learning Score
+- Citation Frequency
+
+to improve retrieval ranking.
+
+---
+
+### Knowledge Graph Integration
+
+Chunks may become nodes within a semantic knowledge graph.
+
+Relationships between chunks could include:
+
+- References
+- Dependencies
+- Similar Concepts
+- Prerequisites
+- Contradictions
+
+This enables graph-based reasoning in future versions.
+
+---
+
+### Incremental Embedding Updates
+
+Instead of regenerating all embeddings, future pipelines may regenerate only affected chunks after document modifications.
+
+---
+
+### Cross-Document Relationships
+
+The retrieval engine may automatically identify relationships between chunks originating from different documents.
+
+Example:
+
+```text
+Operating Systems
+
+↓
+
+Process Scheduling
+
+⇄
+
+Computer Networks
+
+↓
+
+Packet Scheduling
+```
+
+These semantic links can power personalized insights and knowledge discovery.
+
+---
+
+### AI Generated Chunk Labels
+
+Background models may generate:
+
+- Topic Labels
+- Difficulty Levels
+- Keywords
+- Learning Objectives
+
+to enrich chunk metadata.
+
+---
+
+# 19.22 Summary
+
+The `document_chunks` table forms the core knowledge representation layer of KnowledgeOS and serves as the bridge between relational metadata and semantic vector search.
+
+Each document is transformed into an ordered collection of immutable chunks, where every chunk maps directly to a single vector stored in ChromaDB. Rich metadata—including versioning, source location, heading hierarchy, token counts, and neighboring relationships—enables efficient retrieval, accurate citations, and high-quality context assembly for the RAG pipeline.
+
+By separating structured metadata in PostgreSQL from embeddings and chunk text in ChromaDB, the architecture balances transactional consistency with high-performance semantic search. Version synchronization, immutable chunk generation, and one-to-one vector mapping ensure reliable operation even during document updates or embedding regeneration.
+
+This design provides a scalable, production-ready foundation for Retrieval-Augmented Generation while remaining extensible for future capabilities such as adaptive chunking, multimodal ingestion, hybrid retrieval, knowledge graphs, and advanced AI-driven reasoning.
+
+---
