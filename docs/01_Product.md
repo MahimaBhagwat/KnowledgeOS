@@ -178,11 +178,13 @@ Needs:
 * Permanently remove deleted documents from storage, metadata, embeddings, and future AI retrieval.
 * Deleted documents must never be referenced in future conversations.
 
+
 ## Quick Notes
 
 In Case of input as direct text: 
 
 * Paste text directly into the application.
+* Validate input payload size against predefined engineering limits prior to document conversion pipelines (Refer to 04-01-Database.md Section 12.1).
 * Assign a title to the pasted content.
 * Automatically convert pasted text into a TXT document.
 * Save the generated TXT file into the user's document library.

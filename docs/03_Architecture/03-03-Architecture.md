@@ -47,33 +47,33 @@ Supabase Authentication
 
 Authentication Successful?
 
-├── No
+├── No -> Return Error
 
-│      ↓
+│      
 
-│  Return Error
+│  
 
 │
 
 └── Yes
 
-       ↓
+     ↓
 
 Create Session
 
-↓
+     ↓
 
 Fetch User Profile
 
-↓
+     ↓
 
 Return JWT + User Data
 
-↓
+     ↓
 
 Frontend Stores Session
 
-↓
+     ↓
 
 Navigate to Home
 ```
@@ -333,6 +333,7 @@ Improve response quality through iterative validation.
                                                   ▼
                                      Return Best verified Response 
                                      + Verification Disclaimer
+                                     (Stored and flagged within schema constraints as detailed in 04-07-Database.md Section 21.5)
 
 ```
 

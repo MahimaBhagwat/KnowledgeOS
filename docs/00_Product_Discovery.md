@@ -320,6 +320,7 @@ The first release of KnowledgeOS will include:
 * Multi-document retrieval
 * Knowledge synthesis
 * Personalized insights dashboard
+* Support system-managed directory structures (including default Uploaded, Quick Notes, and Archive folders as specified in 04-03-Database.md)
 
 ---
 

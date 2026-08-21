@@ -24,13 +24,14 @@ This document covers the architecture of the complete KnowledgeOS MVP, including
 * Frontend Architecture
 * Backend Architecture
 * Database Architecture
-* AI Architecture
+* AI Architecture (Core RAG Pipeline)
 * Authentication
 * Document Processing
 * Retrieval-Augmented Generation (RAG)
-* Multi-Agent Workflow
+* Multi-Agent Workflow (Planner/Reviewer)
 * Deployment Strategy
-* Scalability Considerations
+
+Note: Advanced components (including OCR, Voice AI, external integrations, and interactive knowledge graphs) are strictly classified as Phase 2+ features (Refer to 00_Product_Discovery.md Section 11 for immediate MVP scope boundaries).
 
 ---
 
