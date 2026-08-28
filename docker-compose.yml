@@ -1,0 +1,32 @@
+﻿version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    # Override any host-local absolute paths from backend/.env so the
+    # container uses internal consistent paths. The env_file still provides
+    # secrets like SUPABASE_*/LLM_* without hardcoding them here.
+    environment:
+      CHROMA_PERSIST_DIRECTORY: /data/chroma
+      UPLOADS_DIR: /data/uploads
+    volumes:
+      - chroma_data:/data/chroma
+      - uploads_data:/data/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  chroma_data:
+    name: knowledgeos_chroma_data
+  uploads_data:
+    name: knowledgeos_uploads_data

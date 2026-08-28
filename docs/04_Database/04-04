@@ -194,23 +194,17 @@ PRIMARY KEY (id);
 
 ```sql
 FOREIGN KEY (profile_id)
-
 REFERENCES profiles(id)
-
 ON DELETE CASCADE;
 ```
 
 ```sql
 FOREIGN KEY (folder_id)
-
 REFERENCES folders(id)
-
 ON DELETE RESTRICT;
 ```
 
-The database enforces referential integrity by preventing the deletion of folders that still contain documents.
-
-When a user requests the deletion of a custom folder, the application service (or a database trigger) first transfers all associated documents to the user's **Uploaded** system folder before executing the folder deletion.
+The database strictly enforces referential integrity by preventing the deletion of folders that still contain bound document relations. The structural remediation workflow (transferring bound entities back to the default system 'Uploaded' folder) is handled exclusively within the API service controller layer before executing a folder deletion command (Refer to 05-01-APIs.md Section 5 for the execution lifecycle).
 
 ```text
 Delete Folder Request

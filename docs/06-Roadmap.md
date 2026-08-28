@@ -99,8 +99,7 @@ Small improvements are encouraged throughout development rather than delaying cl
 - Pydantic
 - SQLAlchemy
 - Alembic
-- Celery (Background Jobs)
-- Redis
+- FastAPI Background Tasks
 
 ---
 
@@ -231,57 +230,14 @@ before being considered complete.
 
 # 5. High-Level Development Phases
 
-KnowledgeOS will be developed through twelve incremental phases.
+The application will be developed through twelve incremental phases. Each phase requires completing its corresponding database schemas, repositories, and API surfaces before advancing to downstream phases.
 
-Each phase builds directly on the previous one, ensuring that foundational infrastructure is completed before higher-level AI capabilities are introduced.
+Strict Technical Dependencies:
+1. Core Database and Ingestion Infrastructure (Phases 1-4) must be fully established before Ingestion Pipelines (Phase 5) are initialized.
 
-```text
-Project Setup
+2. Vector Storage and Indexing (Phase 6) must be completed before Chat interfaces (Phase 7) or RAG workflows (Phase 8) are connected.
 
-↓
-
-Authentication
-
-↓
-
-Database
-
-↓
-
-Document Library
-
-↓
-
-Document Processing Pipeline
-
-↓
-
-Vector Database
-
-↓
-
-AI Chat
-
-↓
-
-AI Pipeline
-
-↓
-
-Insights Engine
-
-↓
-
-Frontend Polish
-
-↓
-
-Testing
-
-↓
-
-Deployment
-```
+3. Chat messaging structures (Phases 7-8) serve as data dependencies for Proactive Insights (Phase 9).
 
 The objective is to keep the application functional after every phase while progressively adding intelligence and features.
 
@@ -795,6 +751,7 @@ This is the first AI-focused backend phase and prepares documents for Retrieval-
 Implement:
 
 - Background ingestion workers
+- Configure the asynchronous backend ingestion task engine exactly according to the structural layer specifications defined in the system architecture repository configuration layout (Refer to 03-01-Architecture.md Section 7).
 - File parser service
 - Metadata extractor
 - Chunk generator

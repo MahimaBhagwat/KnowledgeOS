@@ -1,40 +1,81 @@
-# Python
+ 
+# Python & Backend Artifacts
+ 
 __pycache__/
 *.py[cod]
+*$py.class
 *.pyo
 *.egg-info/
 .venv/
 venv/
+ENV/
+*.sqlite3
+*.db
 
-# Node
+ 
+# Node / Frontend Artifacts
+ 
 node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+build/
+frontend/build/
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
-# Environment
+ 
+# Environment & Secrets (Never commit)
+ 
 .env
 .env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
 
-# VS Code
+ 
+# ChromaDB & Vector Store Data
+ 
+chroma/
+chroma_data/
+.chroma_persist/
+backend/chroma/
+backend/chroma_data/
+backend/.chroma_persist/
+
+ 
+# User Uploads & Storage (Privacy)
+ 
+uploads/
+backend/uploads/
+
+ 
+# Temporary & Diagnostic Test Scripts
+ 
+tmp/
+temp/
+.cache/
+backend/tmp_health_check.py
+backend/verify_upload_content.py
+
+ 
+# IDE & System Files
+ 
 .vscode/
-
-# OS
+.idea/
 .DS_Store
 Thumbs.db
 
-# Logs
+ 
+# Logs & Testing
+ 
 *.log
-
-# Database
-*.db
-
-# ChromaDB
-chroma/
-
-# Build
-dist/
-build/
-
-# Coverage
 .coverage
 htmlcov/
 .pytest_cache/
@@ -42,10 +83,7 @@ htmlcov/
 # Docker
 docker-data/
 
-# Temporary
-tmp/
-temp/
-.cache/
-
-# Internal AI prompts (not part of project documentation)
+ 
+# Internal Prompts (Non-documentation)
+ 
 docs/Claude_Prompt.md

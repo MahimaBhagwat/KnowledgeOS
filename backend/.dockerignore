@@ -1,0 +1,45 @@
+# Ignore Python cache and local runtime artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files
+.env
+.env.*
+
+# VCS
+.git/
+.gitignore
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.wheelhouse/
+
+# IDEs and editors
+.vscode/
+.idea/
+
+# Node
+node_modules/
+
+# Tests and local logs
+.pytest_cache/
+*.log
+
+# Docs and other local-only folders
+docs/
+
+# OS files
+.DS_Store
+Thumbs.db
