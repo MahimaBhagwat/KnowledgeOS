@@ -87,3 +87,6 @@ docker-data/
 # Internal Prompts (Non-documentation)
  
 docs/Claude_Prompt.md
+.github/
+docs/
+backend/scripts/list_*.py
