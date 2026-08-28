@@ -17,6 +17,10 @@ class PlannerAgent(BaseAgent):
     `step_number`, `action`, and `description` fields. If the LLM call fails
     or returns invalid JSON, the planner falls back to the previous heuristic
     behavior.
+
+    After create_plan() runs, self.last_usage_tokens holds a dict with
+    'prompt_tokens' and 'completion_tokens' for the LLM call made during
+    plan generation (0/0 if the heuristic fallback was used instead).
     """
 
     async def create_plan(self, goal: str, context: Optional[dict] = None) -> AgentPlan:
@@ -26,6 +30,8 @@ class PlannerAgent(BaseAgent):
         present attempt to ask the LLM to produce a JSON plan. On error,
         fall back to heuristic plan building.
         """
+        self.last_usage_tokens: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
+
         normalized_goal = goal.strip()
         steps = self._parse_structured_steps(normalized_goal)
         if steps:
@@ -55,6 +61,8 @@ class PlannerAgent(BaseAgent):
             ]
 
             response = await litellm.acompletion(model=settings.llm_chat_model_name, messages=messages, api_key=settings.llm_api_key.get_secret_value())
+
+            self._accumulate_usage(response)
 
             # Extract content safely
             choices = getattr(response, "choices", None) or (response.get("choices") if isinstance(response, dict) else None)
@@ -94,6 +102,18 @@ class PlannerAgent(BaseAgent):
             # On any failure, fall back to heuristic plan builder
             steps = self._build_heuristic_steps(normalized_goal, context)
             return AgentPlan(goal=normalized_goal, steps=steps)
+
+    def _accumulate_usage(self, response: Any) -> None:
+        """Extract prompt/completion tokens from a litellm response and add to last_usage_tokens."""
+        usage = getattr(response, "usage", None)
+        if usage is None and isinstance(response, dict):
+            usage = response.get("usage")
+        if usage is None:
+            return
+        prompt_tokens = getattr(usage, "prompt_tokens", None) if not isinstance(usage, dict) else usage.get("prompt_tokens")
+        completion_tokens = getattr(usage, "completion_tokens", None) if not isinstance(usage, dict) else usage.get("completion_tokens")
+        self.last_usage_tokens["prompt_tokens"] += int(prompt_tokens or 0)
+        self.last_usage_tokens["completion_tokens"] += int(completion_tokens or 0)
 
     async def run(self, input_text: str, context: Optional[dict] = None) -> AgentExecutionResult:
         """Generate a plan for the provided input text."""

@@ -19,6 +19,10 @@ class ExecutorAgent(BaseAgent):
       - folder_id: optional folder scope
       - recent_history: optional chat history
       - user_text: original user query
+
+    After execute_plan() runs, self.last_usage_tokens holds the SUM of
+    prompt/completion tokens across every generation-step LLM call made
+    during that execution (0/0 if no generation steps ran an LLM call).
     """
 
     async def run(self, input_text: str, context: Optional[dict] = None) -> AgentExecutionResult:
@@ -42,8 +46,11 @@ class ExecutorAgent(BaseAgent):
         """Execute a structured AgentPlan sequentially.
 
         Each step is executed via _execute_step which uses retrieval + generation
-        where applicable. The method collects per-step outputs and timing metadata.
+        where applicable. The method collects per-step outputs and timing metadata,
+        and accumulates token usage across all steps into self.last_usage_tokens.
         """
+        self.last_usage_tokens: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
+
         task_id = f"exec_{uuid4().hex[:8]}"
         start_time = time.time()
         outputs: List[str] = []
@@ -87,6 +94,18 @@ class ExecutorAgent(BaseAgent):
 
         return AgentExecutionResult(task_id=task_id, success=all_success, output=output_text, metadata=metadata)
 
+    def _accumulate_usage(self, response: Any) -> None:
+        """Extract prompt/completion tokens from a litellm response and add to last_usage_tokens."""
+        usage = getattr(response, "usage", None)
+        if usage is None and isinstance(response, dict):
+            usage = response.get("usage")
+        if usage is None:
+            return
+        prompt_tokens = getattr(usage, "prompt_tokens", None) if not isinstance(usage, dict) else usage.get("prompt_tokens")
+        completion_tokens = getattr(usage, "completion_tokens", None) if not isinstance(usage, dict) else usage.get("completion_tokens")
+        self.last_usage_tokens["prompt_tokens"] += int(prompt_tokens or 0)
+        self.last_usage_tokens["completion_tokens"] += int(completion_tokens or 0)
+
     async def _execute_step(self, step: AgentStep, context: Optional[dict] = None) -> tuple[bool, str]:
         """Execute a single plan step using retrieval and LLM generation where appropriate.
 
@@ -96,6 +115,7 @@ class ExecutorAgent(BaseAgent):
         """
         # Lazy import to avoid heavy dependencies at module import time
         from app.retrieval.retriever import SemanticRetriever
+        from app.notes.retriever import NoteRetriever
         from app.core.embeddings import generate_query_embedding
         import litellm
         from app.core.config import settings
@@ -113,26 +133,50 @@ class ExecutorAgent(BaseAgent):
             user_text = context.get("user_text")
 
         retriever = SemanticRetriever()
+        note_retriever = NoteRetriever()
+
+        async def _get_composed_context(query_str: str):
+            try:
+                q_emb = generate_query_embedding(query_str)
+            except Exception:
+                q_emb = []
+            doc_ctxs = []
+            note_ctxs = []
+            if session and profile_id and q_emb:
+                try:
+                    doc_ctxs = await retriever.retrieve_relevant_chunks(
+                        session=session,
+                        query_embedding=q_emb,
+                        profile_id=profile_id,
+                        folder_id=folder_id,
+                        top_k=5,
+                    )
+                except Exception:
+                    doc_ctxs = []
+                try:
+                    note_ctxs = await note_retriever.retrieve_relevant_chunks(
+                        session=session,
+                        query_embedding=q_emb,
+                        profile_id=profile_id,
+                        folder_id=folder_id,
+                        top_k=5,
+                    )
+                except Exception:
+                    note_ctxs = []
+            doc_formatted = retriever.format_context_for_llm(doc_ctxs)
+            note_formatted = note_retriever.format_context_for_llm(note_ctxs)
+            sections = []
+            if doc_formatted:
+                sections.append(f"--- Document Knowledge ---\n{doc_formatted}")
+            if note_formatted:
+                sections.append(f"--- User Notes ---\n{note_formatted}")
+            return "\n\n".join(sections).strip(), doc_ctxs, note_ctxs
 
         # If the step is inspection/review, perform retrieval and return formatted context
         if step.action in ("review_context", "analyze"):
             try:
                 query_text = step.description or user_text or ""
-                query_embedding = generate_query_embedding(query_text)
-            except Exception:
-                query_embedding = []
-
-            try:
-                contexts = []
-                if session and profile_id:
-                    contexts = await retriever.retrieve_relevant_chunks(
-                        session=session,
-                        query_embedding=query_embedding,
-                        profile_id=profile_id,
-                        folder_id=folder_id,
-                        top_k=5,
-                    )
-                formatted = retriever.format_context_for_llm(contexts)
+                formatted, _, _ = await _get_composed_context(query_text)
                 if not formatted:
                     return True, "No relevant context found."
                 return True, f"Retrieved context:\n{formatted}"
@@ -141,27 +185,8 @@ class ExecutorAgent(BaseAgent):
 
         # For generation-like steps, call LLM with retrieved context and prompt for a concise result
         try:
-            # Retrieve context scoped to the step description
-            try:
-                query_text = step.description or user_text or ""
-                query_embedding = generate_query_embedding(query_text)
-            except Exception:
-                query_embedding = []
-
-            contexts = []
-            if session and profile_id:
-                try:
-                    contexts = await retriever.retrieve_relevant_chunks(
-                        session=session,
-                        query_embedding=query_embedding,
-                        profile_id=profile_id,
-                        folder_id=folder_id,
-                        top_k=5,
-                    )
-                except Exception:
-                    contexts = []
-
-            system_context = retriever.format_context_for_llm(contexts)
+            query_text = step.description or user_text or ""
+            system_context, doc_contexts, note_contexts = await _get_composed_context(query_text)
 
             messages: List[dict] = []
             if system_context:
@@ -179,6 +204,9 @@ class ExecutorAgent(BaseAgent):
             messages.append({"role": "user", "content": user_prompt})
 
             response = await litellm.acompletion(model=settings.llm_chat_model_name, messages=messages, api_key=settings.llm_api_key.get_secret_value())
+
+            self._accumulate_usage(response)
+
             choices = getattr(response, "choices", None) or (response.get("choices") if isinstance(response, dict) else None)
             if not choices:
                 return False, "LLM returned no choices"
@@ -190,9 +218,13 @@ class ExecutorAgent(BaseAgent):
 
             # Return the step output and success
             # Also include a short citation summary if contexts exist
-            citation_summary = None
-            if contexts:
-                citation_summary = ", ".join([f"{str(c.document_id)}:chunk{c.chunk_index}" for c in contexts[:3]])
+            citations_list = []
+            for c in doc_contexts[:2]:
+                citations_list.append(f"doc:{str(c.document_id)[:8]}:chunk{c.chunk_index}")
+            for n in note_contexts[:2]:
+                citations_list.append(f"note:{str(n.note_id)[:8]}:chunk{n.chunk_index}")
+            citation_summary = ", ".join(citations_list) if citations_list else None
+
             result_text = str(content).strip()
             if citation_summary:
                 result_text = f"{result_text}\n\nCitations: {citation_summary}"

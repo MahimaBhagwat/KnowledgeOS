@@ -15,6 +15,10 @@ class ReviewerAgent(BaseAgent):
     This reviewer uses the LLM to produce a critique of the execution output
     relative to the original plan and the retrieved context. If the reviewer
     requests changes, the executor is allowed a single revision pass.
+
+    After review_execution() runs, self.last_usage_tokens holds the
+    prompt/completion tokens for the critique LLM call (0/0 if the
+    deterministic fallback heuristic was used instead).
     """
 
     REVIEW_THRESHOLD: float = 0.7
@@ -60,6 +64,18 @@ class ReviewerAgent(BaseAgent):
 
         return await self.review_execution(exec_result, original_plan=context.get("plan") if context else None, context=context)
 
+    def _accumulate_usage(self, response: Any) -> None:
+        """Extract prompt/completion tokens from a litellm response and add to last_usage_tokens."""
+        usage = getattr(response, "usage", None)
+        if usage is None and isinstance(response, dict):
+            usage = response.get("usage")
+        if usage is None:
+            return
+        prompt_tokens = getattr(usage, "prompt_tokens", None) if not isinstance(usage, dict) else usage.get("prompt_tokens")
+        completion_tokens = getattr(usage, "completion_tokens", None) if not isinstance(usage, dict) else usage.get("completion_tokens")
+        self.last_usage_tokens["prompt_tokens"] += int(prompt_tokens or 0)
+        self.last_usage_tokens["completion_tokens"] += int(completion_tokens or 0)
+
     async def review_execution(
         self, execution_result: AgentExecutionResult, original_plan: Optional[AgentPlan] = None, context: Optional[dict] = None
     ) -> AgentExecutionResult:
@@ -69,6 +85,8 @@ class ReviewerAgent(BaseAgent):
         the execution output, the original plan (if available), and a small
         sample of retrieved context to ground its critique.
         """
+        self.last_usage_tokens: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0}
+
         # Use available short context for the reviewer (if retriever results passed)
         sample_context_text = ""
         if context:
@@ -96,6 +114,9 @@ class ReviewerAgent(BaseAgent):
             ]
 
             response = await litellm.acompletion(model=settings.llm_chat_model_name, messages=messages, api_key=settings.llm_api_key.get_secret_value())
+
+            self._accumulate_usage(response)
+
             choices = getattr(response, "choices", None) or (response.get("choices") if isinstance(response, dict) else None)
             if not choices:
                 raise ValueError("LLM returned no choices for review")

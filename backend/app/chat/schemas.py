@@ -9,10 +9,12 @@ from typing import Literal
 
 
 class CitationOut(BaseModel):
-    """Representation of a cited document chunk included with an assistant response."""
+    """Representation of a cited document or note chunk included with an assistant response."""
 
     chunk_id: UUID
-    document_id: UUID
+    document_id: Optional[UUID] = None
+    note_id: Optional[UUID] = None
+    source_type: Optional[str] = "document"
     chunk_index: int
     similarity_score: float
     chunk_text: str

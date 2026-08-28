@@ -42,5 +42,62 @@ class SearchQueryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-__all__ = ["SearchQueryRequest", "SearchQueryResponse"]
+class SearchRequest(BaseModel):
+    """Request payload for hybrid search across documents and notes."""
+
+    query: str = Field(..., min_length=1)
+    folder_id: Optional[UUID] = None
+    top_k: int = Field(10, gt=0, le=50)
+    source_type: Optional[str] = Field("all", description="'all', 'document', or 'note'")
+    score_threshold: float = Field(0.0, ge=0.0)
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def _strip_query(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("query")
+    @classmethod
+    def _validate_query(cls, value: str) -> str:
+        if not value:
+            raise ValueError("query must not be empty")
+        return value
+
+
+class SearchResultItem(BaseModel):
+    """Normalized search result item representing a matching document or note chunk."""
+
+    id: UUID
+    parent_id: UUID
+    title: str
+    snippet: str
+    source_type: str
+    similarity_score: float
+    chunk_index: Optional[int] = None
+    folder_id: Optional[UUID] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SearchResponse(BaseModel):
+    """Normalized search response."""
+
+    query: str
+    results: List[SearchResultItem]
+    total_count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+__all__ = [
+    "SearchQueryRequest",
+    "SearchQueryResponse",
+    "SearchRequest",
+    "SearchResultItem",
+    "SearchResponse",
+]
 

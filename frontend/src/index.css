@@ -2,13 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-html {
+:root,
+html[data-theme="dark"] {
   color-scheme: dark;
+  --bg-app: #09090b;
+  --bg-header: rgba(9, 9, 11, 0.95);
+  --bg-sidebar: rgba(9, 9, 11, 0.6);
+  --bg-card: rgba(24, 24, 27, 0.4);
+  --bg-surface: #18181b;
+  --border-app: #27272a;
+}
+
+html[data-theme="obsidian"] {
+  color-scheme: dark;
+  --bg-app: #000000;
+  --bg-header: rgba(0, 0, 0, 0.95);
+  --bg-sidebar: rgba(10, 10, 10, 0.7);
+  --bg-card: rgba(15, 15, 15, 0.6);
+  --bg-surface: #121212;
+  --border-app: #1e1e22;
+}
+
+html[data-theme="midnight"] {
+  color-scheme: dark;
+  --bg-app: #020617;
+  --bg-header: rgba(2, 6, 23, 0.95);
+  --bg-sidebar: rgba(15, 23, 42, 0.6);
+  --bg-card: rgba(15, 23, 42, 0.4);
+  --bg-surface: #0f172a;
+  --border-app: #1e293b;
 }
 
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  background-color: var(--bg-app);
+  @apply text-zinc-100 antialiased;
   margin: 0;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 #root {

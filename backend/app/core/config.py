@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     llm_chat_model_name: str = Field(..., validation_alias="LLM_CHAT_MODEL_NAME")
     llm_embedding_model_name: str = Field(..., validation_alias="LLM_EMBEDDING_MODEL_NAME")
     llm_api_url: Optional[HttpUrl] = Field(None, validation_alias="LLM_API_URL")
+    
+    agentic_chat_enabled: bool = Field(True, validation_alias="AGENTIC_CHAT_ENABLED")
 
     # Optional override to specify absolute uploads directory via env var
     uploads_dir: Optional[str] = Field(None, validation_alias="UPLOADS_DIR")

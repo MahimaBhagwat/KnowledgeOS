@@ -8,12 +8,17 @@ export async function getFolders(): Promise<FolderItem[]> {
   return apiGet<FolderItem[]>('/folders/');
 }
 
-export async function getDocuments(folderId: string, options?: { isDeleted?: boolean; isFavorite?: boolean }): Promise<DocumentItem[]> {
-  return apiGet<DocumentItem[]>('/documents/', {
-    folder_id: folderId,
+export async function getDocuments(folderId?: string, options?: { isDeleted?: boolean; isFavorite?: boolean }): Promise<DocumentItem[]> {
+  const params: Record<string, any> = {
     is_deleted: options?.isDeleted ?? false,
-    is_favorite: options?.isFavorite,
-  });
+  };
+  if (folderId) {
+    params.folder_id = folderId;
+  }
+  if (options?.isFavorite !== undefined) {
+    params.is_favorite = options.isFavorite;
+  }
+  return apiGet<DocumentItem[]>('/documents/', params);
 }
 
 export async function uploadDocument(file: File, folderId: string, onProgress: (progress: number) => void): Promise<DocumentItem> {

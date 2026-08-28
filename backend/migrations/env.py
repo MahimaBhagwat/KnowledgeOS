@@ -8,12 +8,12 @@ Do not hardcode credentials here; the underlying settings read from the
 environment (DATABASE_URL) or .env when appropriate.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from __future__ import annotations
 
 import asyncio
 import logging

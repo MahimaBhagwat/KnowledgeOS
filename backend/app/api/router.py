@@ -11,6 +11,7 @@ FEATURE_ROUTER_MODULE_PATHS: Dict[str, str] = {
     "folders": "app.folders.router",
     "documents": "app.documents.router",
     "retrieval": "app.retrieval.router",
+    "search": "app.retrieval.search_router",
     "chat": "app.chat.router",
     "insights": "app.insights.router",
     "notes": "app.notes.router",
