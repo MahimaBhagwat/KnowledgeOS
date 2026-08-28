@@ -90,3 +90,6 @@ docs/Claude_Prompt.md
 .github/
 docs/
 backend/scripts/list_*.py
+
+.github/
+docs/
